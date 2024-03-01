@@ -9,39 +9,44 @@ from torch.utils.data import DataLoader
 import json
 from utils.train_utils import set_seed, seed_worker
 
-
 def argParser():
     parser = ArgumentParser()
     # data
-    parser.add_argument(
-        "--data_dir",
-        type=str,
-        default="",
-        help="path to data directory",
-    )
+    #parser.add_argument(
+    #    "--data_dir",
+    #    type=str,
+    #    default="",
+    #    help="path to data directory",
+    #)
     parser.add_argument("--csv_file", type=str, default="", help="name of csv file")
     parser.add_argument(
         "--result_dir", type=str, default="./results", help="path to output directory"
     )
 
     # training
-    parser.add_argument(
-        "--loss",
-        type=str,
-        help="loss function",
-        default="",
+    parser.add_argument('--loss',  nargs='+', default=["DiceCELoss"], 
+                        help = "loss functions: DiceCELoss, BoundaryLoss"
     )
 
+    parser.add_argument(
+        "--prior", action="store_true", default=False, help="include prior"
+    )
+    parser.add_argument("--mask", action="store_true", default=False, help="mask imag")
+    parser.add_argument("--mask_size", type=int, default=20, help="mask size")
+    parser.add_argument("--mask_percent", type=int, default=40, help="mask percent")
+    parser.add_argument("--prior_type", type=str, default="seg", help="prior type", choices=['seg','img','both'])
+    parser.add_argument("--freeze", action="store_true", default=False, help="freeze encoder")
     parser.add_argument("--opt", type=str, default="adam", help="optimizer")
     parser.add_argument("--lr", type=float, default=1e-3, help="learning rate")
     parser.add_argument("--batch_size", type=int, default=1, help="batch size")
-    parser.add_argument("--epochs", type=int, default=100, help="number of epochs")
+    parser.add_argument("--update_size", type=int, default=1, help="update size")
+    parser.add_argument("--epochs", type=int, default=50, help="number of epochs")
     parser.add_argument(
         "--es", action="store_true", default=False, help="early stopping"
     )
-    parser.add_argument(
-        "--es_criterion", type=str, default="total", help="early stopping criterion"
-    )
+    #parser.add_argument(
+    #    "--es_criterion", type=str, default="total", help="early stopping criterion"
+    #)
     parser.add_argument(
         "--es_warmup", type=int, default=0, help="early stopping warmup"
     )
@@ -55,6 +60,15 @@ def argParser():
         "--print_every", type=int, default=10, help="print every n batches"
     )
     parser.add_argument("--seed", type=int, default=0, help="random seed")
+
+    # scheduler
+    parser.add_argument("--sche", type=str, default=None, help="scheduler", choices=['cosine'])
+    parser.add_argument(
+        "--max_epoch",
+        type=float,
+        default=50,
+        help="maximum number of epochs for scheduler",
+    )
 
     # resume if your model is interrupted
     parser.add_argument(
@@ -77,8 +91,6 @@ def main(args):
     # set seed
     set_seed(args.seed)
 
-    if args.es_criterion not in args.loss and args.es_criterion != "total":
-        raise ValueError("Early stopping criterion not in loss!")
 
     # continue training on previous checkpoint
     if args.resume:
@@ -92,13 +104,26 @@ def main(args):
                 setattr(args, key, value)
 
         # init model
-        model = Trainer(args, mode="train")
+        model = Trainer(args)
         # load checkpoint
         model.load_prev()
 
     else:
         # create experiment folder
-        exp_name = ""
+        exp_name = f"exp_{args.opt}_lr{args.lr}_bs{args.batch_size}_us{args.update_size}_seed{args.seed}"
+        for loss in args.loss:
+            exp_name += f"_{loss}"        
+        if args.prior:
+            exp_name += f"_prior{args.prior}_{args.prior_type}"
+        if args.mask:
+            exp_name += f"_mask{args.mask_size}_{args.mask_percent}"
+            
+        if args.freeze:
+            exp_name += '_freeze'
+
+        if args.sche:
+            exp_name += f"_{args.sche}_max{args.max_epoch}"
+
 
         exp_dir = os.path.join(args.result_dir, exp_name)
         if not os.path.exists(exp_dir):
@@ -112,14 +137,30 @@ def main(args):
             json.dump(vars(args), f, indent=4)
 
         # init model
-        model = Trainer(args, mode="train")
+        model = Trainer(args)
 
     # init dataset
     train_dataset = TaskDataset(
-        data_dir=args.data_dir, csv_file=args.csv_file, mode="train"
+        csv_file=args.csv_file,
+        mode="train", 
+        mask=args.mask, 
+        mask_size=args.mask_size, 
+        mask_percent=args.mask_percent
     )
     val_dataset = TaskDataset(
-        data_dir=args.data_dir, csv_file=args.csv_file, mode="val"
+        csv_file=args.csv_file, 
+        mode="val",
+        mask=args.mask,
+        mask_size=args.mask_size,
+        mask_percent=args.mask_percent
+    )
+
+    test_dataset = TaskDataset(
+        csv_file=args.csv_file, 
+        mode="test",
+        mask=args.mask,
+        mask_size=args.mask_size,
+        mask_percent=args.mask_percent
     )
 
     # init dataloader
@@ -139,10 +180,19 @@ def main(args):
         pin_memory=True,
     )
 
-    # train
-    results = model.train(train_loader, val_loader)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+    )
 
-    results.to_csv(os.path.join(args.exp_dir, "results.csv"))
+    # train
+    results_val, results_test = model.train(train_loader, val_loader, test_loader)
+
+    results_val.to_csv(os.path.join(args.exp_dir, "results_val.csv"))
+    results_test.to_csv(os.path.join(args.exp_dir, "results_test.csv"))
 
 
 if __name__ == "__main__":

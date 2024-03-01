@@ -8,11 +8,25 @@ import random
 import time
 import math
 from argparse import ArgumentParser
-from model.model import Model
-from utils.loss_utils import loss1
+from model.unet import PlainConvUNet
+from model.initialization.weight_init import InitWeights_He
+from utils.loss_utils import BoundaryLoss, BoundaryDoULoss
+#from utils.loss_utils import loss1
 from utils.train_utils import EarlyStopping
-from utils.metric_utils import metric1
+from utils.metric_utils import DiceCoefficient
+import logging
 from tensorboardX import SummaryWriter
+import monai
+import sys
+sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/nnUNet')
+sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/dynamic-network-architectures')
+
+from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
+from nnunetv2.utilities.label_handling.label_handling import  determine_num_input_channels
+from dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
+from tqdm import tqdm
+
+import matplotlib.pyplot as plt
 
 
 class baseTrainer:
@@ -26,7 +40,16 @@ class baseTrainer:
         self.es = args.es
         self.es_warmup = args.es_warmup
         self.es_patience = args.es_patience
-
+        self.update_size = args.update_size
+        self.prior = args.prior
+        self.prior_type = args.prior_type
+        self.freeze = args.freeze
+        self.sche = args.sche
+        if self.sche:
+            self.sche_param = {
+                "cosine": {"max_epoch": args.max_epoch},
+                #"lambdacosine": {"max_epoch": args.max_epoch, "lr_factor": args.lrf},
+            }
         self.exp_dir = args.exp_dir
         self.log = args.log
         self.print_every = args.print_every
@@ -36,9 +59,10 @@ class baseTrainer:
         self.__init_loss()
         self.__init_optimizer()
         self.__init_scheduler()
-        self.__init_scaler()
+        #self.__init_scaler()
         self.__init_logger()
         self.__init_es()
+
 
     def __init_optimizer(self):
         print(f"Initiate {self.opt} optimizer", end=" ")
@@ -54,20 +78,75 @@ class baseTrainer:
 
     def __init_loss(self):
         print(f"Initiate {self.loss} loss", end=" ")
-        self.loss_fn = loss1()
+        self.DiceCE_loss = monai.losses.DiceCELoss(softmax=True, squared_pred=True, reduction='mean')
+        self.boundary_loss = BoundaryLoss(1)
         print("...done")
 
     def __init_model(self):
         print(f"Initiate  model", end=" ")
-        self.model = Model()
+
+        total_weights = torch.load('/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/checkpoint_final.pth')
+        plans_manager = PlansManager(total_weights['init_args']['plans'])
+        configuration_manager = plans_manager.get_configuration(total_weights['init_args']['configuration'])
+        dataset_json = total_weights['init_args']['dataset_json']
+        num_input_channels = determine_num_input_channels(plans_manager, configuration_manager,dataset_json)
+        label_manager = plans_manager.get_label_manager(dataset_json)
+        dim = len(configuration_manager.conv_kernel_sizes[0])
+        conv_op = convert_dim_to_conv_op(dim)
+        deep_supervision = True
+
+        conv_or_blocks_per_stage = {
+            'n_conv_per_stage'
+            if True else 'n_blocks_per_stage': configuration_manager.n_conv_per_stage_encoder,
+            'n_conv_per_stage_decoder': configuration_manager.n_conv_per_stage_decoder
+        }
+        segmentation_network_class_name = configuration_manager.UNet_class_name
+        num_stages = len(configuration_manager.conv_kernel_sizes)
+        kwargs = {
+            'PlainConvUNet': {
+                'conv_bias': True,
+                'norm_op': get_matching_instancenorm(conv_op),
+                'norm_op_kwargs': {'eps': 1e-5, 'affine': True},
+                'dropout_op': None, 'dropout_op_kwargs': None,
+                'nonlin': nn.LeakyReLU, 'nonlin_kwargs': {'inplace': True},
+            },
+            'ResidualEncoderUNet': {
+                'conv_bias': True,
+                'norm_op': get_matching_instancenorm(conv_op),
+                'norm_op_kwargs': {'eps': 1e-5, 'affine': True},
+                'dropout_op': None, 'dropout_op_kwargs': None,
+                'nonlin': nn.LeakyReLU, 'nonlin_kwargs': {'inplace': True},
+            }
+        }
+
+        self.model = PlainConvUNet(
+            input_channels=num_input_channels,
+            n_stages=num_stages,
+            features_per_stage=[min(configuration_manager.UNet_base_num_features * 2 ** i,
+                                    configuration_manager.unet_max_num_features) for i in range(num_stages)],
+            conv_op=conv_op,
+            kernel_sizes=configuration_manager.conv_kernel_sizes,
+            strides=configuration_manager.pool_op_kernel_sizes,
+            num_classes=1,
+            deep_supervision=deep_supervision,
+            prior= self.prior,
+            prior_type= self.prior_type,
+            **conv_or_blocks_per_stage,
+            **kwargs[segmentation_network_class_name]
+        )
+        self.model.apply(InitWeights_He(1e-2))
+        
+        self.model.load_state_dict({i:j for i,j in total_weights['network_weights'].items() if 'decoder.seg_layers' not in i}, 
+                      strict = False)
+        
         print("...done")
 
         if self.freeze:
-            print(f"Freezing {self.freeze}")
+            print(f"Freezing encoder")
             for name, param in self.model.named_parameters():
-                if self.freeze in name:
+                if 'encoder' in name:
                     param.requires_grad = False
-
+        self.model = nn.DataParallel(self.model)
         self.model.to(self.device)
 
     def __init_logger(self):
@@ -95,20 +174,35 @@ class baseTrainer:
         else:
             self.early_stopping = None
 
+    def __init_scheduler(self):
+        if self.sche != None:
+            print(f"Initiate {self.sche} scheduler", end=" ")
+            if self.sche == "cosine":
+                sche_param = self.sche_param["cosine"]
+                self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.optimizer, T_max=sche_param["max_epoch"], eta_min=0
+                )
+            else:
+                raise NotImplementedError
+            print("...done")
+        else:
+            self.scheduler = None
 
 class Trainer(baseTrainer):
-    def __init__(self, args, mode: str = "train") -> None:
-        super(Trainer, self).__init__(args, mode=mode)
+    def __init__(self, args) -> None:
+        super(Trainer, self).__init__(args)
         self.start_epoch = 0
         self.epochs = args.epochs
-        self.ckpt_path = os.path.join(args.exp_dir, "checkpoint.pth.tar")
-        self.es_ckpt_path = os.path.join(args.exp_dir, "es_checkpoint.pth.tar")
+        #self.ckpt_path = os.path.join(args.exp_dir, "checkpoint.pth.tar")
+        self.es_ckpt_path = os.path.join(self.exp_dir, "es_checkpoint.pth.tar")
 
     def train(
         self,
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader,
+        test_loader: torch.utils.data.DataLoader,
     ) -> pd.DataFrame:
+
         # loop through epochs
         for i in range(self.start_epoch, self.epochs):
             self.model.train()
@@ -116,33 +210,65 @@ class Trainer(baseTrainer):
             # training
             train_loss_sum = 0
             train_metric = []
-            for batch_idx, (input_data, label) in enumerate(train_loader):
-                input_data = input_data.to(self.device)
+            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(train_loader)):
+                #print(y0_img.shape, y0_seg.shape, y1_img.shape, y1_seg.shape)
+                y0_img = y0_img.to(self.device)
+                y0_seg = y0_seg.to(self.device)
+                y1_img = y1_img.to(self.device)
+                y1_seg = y1_seg.to(self.device)
+
+                model_input = (y0_img, y0_seg, y1_img)
 
                 # run model
-                model_out = self.model(input_data)
+                model_out = self.model(model_input)
+                model_out_sigmoid = torch.sigmoid(model_out[0])
 
                 # compute metric
-                batch_metric = self.__compute_metric(model_out, label)
-                train_metric.extend(batch_metric)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                train_metric.extend([batch_metric.cpu().item()])
+                #import pdb;pdb.set_trace()
 
                 # compute loss
-                train_loss = self.__compute_loss(self.loss_fn, model_out, label)
+                train_loss = self.__compute_loss( model_out[0], y1_seg) / self.update_size
+                train_loss = train_loss / self.update_size #normalize loss
 
                 # backprop
                 train_loss.backward()
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+
+                # update weights
+                if (batch_idx + 1) % self.update_size == 0 or (batch_idx + 1) == len(train_loader):
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
 
                 train_loss_sum += train_loss.item()
 
                 # training progess batch and loss
-                if batch_idx % self.print_every == 0:
+                if (batch_idx + 1) % self.print_every == 0:
                     print(
-                        "Batch {} - Train Loss: {:.6f}".format(
-                            batch_idx, train_loss.item()
+                        "Batch {} - Train Loss: {:.6f}; Dice :{:.6f}".format(
+                            batch_idx, train_loss.item(), batch_metric.cpu().item()
                         )
                     )
+                    #plot img and seg
+                    for img_idx in [40,120,200]:
+                        fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+                        ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        
+                        #save fig
+                        os.makedirs(os.path.join(self.exp_dir, 'figure', f'train_{i}'), exist_ok=True)
+                        plt.savefig(os.path.join(self.exp_dir, 'figure', f'train_{i}',f"{batch_idx}_{img_idx}.png"))
+                        plt.close()
+
+
+            # update scheduler
+            if self.scheduler:
+                self.scheduler.step()
+                scheduler_state_dict = self.scheduler.state_dict()
+            else:
+                scheduler_state_dict = {}
 
             train_loss_mean = train_loss_sum / len(train_loader)
             train_metric_mean = np.mean(train_metric)
@@ -165,45 +291,81 @@ class Trainer(baseTrainer):
                 "epoch": i + 1,
                 "model": self.model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
+                'scheduler': scheduler_state_dict,
                 "early_stopping": self.early_stopping,
             }
-
+            self.ckpt_path = os.path.join(self.exp_dir, f"checkpoint_{i}.pth.tar")
             torch.save(state, self.ckpt_path)
 
             if earlystop:
                 break
 
         print("Finished Training...")
-        results = self.predict(val_loader)
+        results = self.predict(val_loader, split = 'val')
+        results_test = self.predict(test_loader, split = 'test')
 
         if self.writer:
             self.writer.close()
 
-        return results
+        return results, results_test
 
     def __eval(self, cur, val_loader: torch.utils.data.DataLoader) -> bool:
         val_loss_sum = 0
         val_metric = []
 
+        pids = val_loader.dataset.data.pid.values
+        priorna = val_loader.dataset.data.y0_seg.isna().values
+
         self.model.eval()
         with torch.no_grad():
-            for batch_idx, (input_data, label) in enumerate(val_loader):
-                input_data = input_data.to(self.device)
+            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
+                y0_img = y0_img.to(self.device)
+                y0_seg = y0_seg.to(self.device)
+                y1_img = y1_img.to(self.device)
+                y1_seg = y1_seg.to(self.device)
+
+                model_input = (y0_img, y0_seg, y1_img)
+
                 # run model
-                model_out = self.model(input_data)
+                model_out = self.model(model_input)         
+                model_out_sigmoid = torch.sigmoid(model_out[0])
+
 
                 # compute metric
-                batch_metric = self.__compute_metric(model_out, label)
-                val_metric.extend(batch_metric)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
-                val_loss = self.__compute_loss(self.loss_fn, model_out, label)
+                val_loss = self.__compute_loss( model_out[0], y1_seg)
                 val_loss_sum += val_loss.item()
+
+
+
+                if batch_idx % self.print_every == 0:
+                    print(
+                        "Batch {} - Val Loss: {:.6f}; Dice :{:.6f}".format(
+                            batch_idx, val_loss.item(), batch_metric.cpu().item()
+                        )
+                    )
+                    #plot img and seg
+                    for img_idx in [40,120,200]:
+                        fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+                        ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        fig.suptitle(f"pid: {pids[batch_idx]}, prior (NA): {priorna[batch_idx]}")
+
+                        #save fig
+                        os.makedirs(os.path.join(self.exp_dir, 'figure',f"val_{cur}"), exist_ok=True)
+                        plt.savefig(os.path.join(self.exp_dir, 'figure',f"val_{cur}",f"{batch_idx}_{img_idx}.png"))
+                        plt.close()
+
 
         val_loss_mean = val_loss_sum / len(val_loader)
         val_metric_mean = np.mean(val_metric)
         print(
-            "Epoch {} - Validation Loss : {:.6f}; Metric: {:.6f} ".format(
+            "Epoch {} - Validation Loss : {:.6f}; Dice: {:.6f} ".format(
                 cur, val_loss_mean, val_metric_mean
             )
         )
@@ -224,7 +386,7 @@ class Trainer(baseTrainer):
         else:
             return False
 
-    def predict(self, val_loader: torch.utils.data.DataLoader) -> pd.DataFrame:
+    def predict(self, val_loader: torch.utils.data.DataLoader, split = 'val') -> pd.DataFrame:
         # load final model
         if self.es:
             ckpt_path = self.es_ckpt_path
@@ -237,25 +399,37 @@ class Trainer(baseTrainer):
 
         val_loss_sum = 0
         val_metric = []
+        os.makedirs(os.path.join(self.exp_dir, 'pred_scores', split), exist_ok=True)
+        pids = val_loader.dataset.data.pid.values
 
         with torch.no_grad():
-            for batch_idx, (input_data, label) in enumerate(val_loader):
-                input_data = input_data.to(self.device)
+            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
+                y0_img = y0_img.to(self.device)
+                y0_seg = y0_seg.to(self.device)
+                y1_img = y1_img.to(self.device)
+                y1_seg = y1_seg.to(self.device)
+
+                model_input = (y0_img, y0_seg, y1_img)
+
                 # run model
-                model_out = self.model(input_data)
+                model_out = self.model(model_input)
+                model_out_sigmoid = torch.sigmoid(model_out[0])
+
+                #save sigmoid into pkl files
+                #torch.save(model_out_sigmoid, os.path.join(self.exp_dir, 'pred_scores', split, f"{pids[batch_idx]}.pkl"))
 
                 # compute metric
-                batch_metric = self.__compute_metric(model_out, label)
-                val_metric.extend(batch_metric)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
-                val_loss = self.__compute_loss(self.loss_fn, model_out, label)
+                val_loss = self.__compute_loss( model_out[0], y1_seg)
                 val_loss_sum += val_loss.item()
 
         val_loss_mean = val_loss_sum / len(val_loader)
         val_metric_mean = np.mean(val_metric)
         print(
-            "Final Validation Loss : {:.6f}; Metric: {:.6f} ".format(
+            "Final {} Loss : {:.6f}; Dice: {:.6f} ".format( split,
                 val_loss_mean, val_metric_mean
             )
         )
@@ -263,7 +437,7 @@ class Trainer(baseTrainer):
         # save results
         results = pd.DataFrame(
             {
-                "val": [
+                split: [
                     val_loss_mean,
                     val_metric_mean,
                 ],
@@ -272,14 +446,31 @@ class Trainer(baseTrainer):
         )
         results = pd.concat([results], axis=0)
 
+
+
         return results
 
     @staticmethod
     def __compute_metric(model_out, label):
-        return batch_metric
+        dice = DiceCoefficient()
+        return dice(model_out, label)
 
-    @staticmethod
-    def __compute_loss(model_out, label):
+    def __compute_loss(self, model_out, label):
+
+        loss = []
+        if 'DiceCELoss' in self.loss:
+            dice_ce_loss = self.DiceCE_loss(model_out, label)
+            loss.append(dice_ce_loss)
+        
+        if 'BoundaryLoss' in self.loss:
+            model_out_sigmoid = torch.sigmoid(model_out)
+            boundary_input = torch.cat([1-model_out_sigmoid, model_out_sigmoid], dim=1)
+            boundary_label = torch.cat([1-label, label], dim=1)
+            boundary_loss = self.boundary_loss(boundary_input, boundary_label)
+            loss.append(boundary_loss)
+
+        loss = sum(loss)
+
         return loss
 
     def load_prev(self):
@@ -290,5 +481,7 @@ class Trainer(baseTrainer):
             self.model.load_state_dict(ckpt["model"])
             self.optimizer.load_state_dict(ckpt["optimizer"])
             self.early_stopping = ckpt["early_stopping"]
+            if self.sche:
+                self.scheduler.load_state_dict(ckpt["scheduler"])
         else:
             raise ValueError("No checkpoint found at '{}'".format(self.ckpt_path))

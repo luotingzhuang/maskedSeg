@@ -79,3 +79,35 @@ class EarlyStopping:
                 f"Validation loss decreased from {self.lowest_val_loss:.6f} to {val_loss:.6f}. Model saved."
             )
         torch.save({"model": model.state_dict()}, ckpt_path)
+
+def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, replace = 0):
+
+    # Get image dimensions
+    _ ,depth, height, width = img.shape
+
+    patches_in_depth = depth // patch_size[0]
+    patches_in_height = height // patch_size[1]
+    patches_in_width = width // patch_size[2]
+    total_patches = patches_in_depth * patches_in_height * patches_in_width
+
+    # Calculate the number of patches to mask
+    num_patches_to_mask = int(total_patches * (mask_percentage / 100))
+
+    # Create a binary mask to randomly select patches to mask
+    mask = torch.zeros(img.shape, dtype=torch.uint8)
+
+    patch_indices = np.random.choice(range(total_patches), num_patches_to_mask, replace = False)
+
+    for index in patch_indices:
+        z_idx = index // (patches_in_height * patches_in_width)
+        y_idx = (index % (patches_in_height * patches_in_width)) // patches_in_width
+        x_idx = (index % (patches_in_height * patches_in_width)) % patches_in_width
+
+        mask[:, z_idx * patch_size[0]:(z_idx + 1) * patch_size[0],
+            y_idx * patch_size[1]:(y_idx + 1) * patch_size[1],
+            x_idx * patch_size[2]:(x_idx + 1) * patch_size[2]] = 1
+
+    # Apply the mask to the 3D image
+    img[mask] = replace
+
+    return img
