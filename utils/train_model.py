@@ -18,8 +18,8 @@ import logging
 from tensorboardX import SummaryWriter
 import monai
 import sys
-sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/nnUNet')
-sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/dynamic-network-architectures')
+sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/nnUNet')
+sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/dynamic-network-architectures')
 
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 from nnunetv2.utilities.label_handling.label_handling import  determine_num_input_channels
@@ -27,7 +27,6 @@ from dynamic_network_architectures.building_blocks.helper import get_matching_in
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
-
 
 class baseTrainer:
     def __init__(self, args: ArgumentParser) -> None:
@@ -54,6 +53,7 @@ class baseTrainer:
         self.log = args.log
         self.print_every = args.print_every
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.seg_type = args.seg_type
 
         self.__init_model()
         self.__init_loss()
@@ -78,14 +78,15 @@ class baseTrainer:
 
     def __init_loss(self):
         print(f"Initiate {self.loss} loss", end=" ")
-        self.DiceCE_loss = monai.losses.DiceCELoss(softmax=True, squared_pred=True, reduction='mean')
-        self.boundary_loss = BoundaryLoss(1)
+        self.DiceCE_loss = monai.losses.DiceCELoss(include_background = False,softmax=True, squared_pred=True, reduction='mean', to_onehot_y = True)
+        self.HausdorffDT_loss = monai.losses.HausdorffDTLoss(softmax=True, reduction='mean')
+        #self.boundary_loss = BoundaryLoss(1)
         print("...done")
 
     def __init_model(self):
         print(f"Initiate  model", end=" ")
 
-        total_weights = torch.load('/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/checkpoint_final.pth')
+        total_weights = torch.load('/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/checkpoint_final.pth')
         plans_manager = PlansManager(total_weights['init_args']['plans'])
         configuration_manager = plans_manager.get_configuration(total_weights['init_args']['configuration'])
         dataset_json = total_weights['init_args']['dataset_json']
@@ -119,6 +120,11 @@ class baseTrainer:
             }
         }
 
+        if self.seg_type == 'lung':
+            num_classes = 2
+        elif self.seg_type == 'left_right_lung':
+            num_classes = 3
+
         self.model = PlainConvUNet(
             input_channels=num_input_channels,
             n_stages=num_stages,
@@ -127,7 +133,7 @@ class baseTrainer:
             conv_op=conv_op,
             kernel_sizes=configuration_manager.conv_kernel_sizes,
             strides=configuration_manager.pool_op_kernel_sizes,
-            num_classes=1,
+            num_classes=num_classes,
             deep_supervision=deep_supervision,
             prior= self.prior,
             prior_type= self.prior_type,
@@ -210,6 +216,7 @@ class Trainer(baseTrainer):
             # training
             train_loss_sum = 0
             train_metric = []
+            train_metric_2 = []
             for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(train_loader)):
                 #print(y0_img.shape, y0_seg.shape, y1_img.shape, y1_seg.shape)
                 y0_img = y0_img.to(self.device)
@@ -218,18 +225,23 @@ class Trainer(baseTrainer):
                 y1_seg = y1_seg.to(self.device)
 
                 model_input = (y0_img, y0_seg, y1_img)
-
+                
                 # run model
                 model_out = self.model(model_input)
-                model_out_sigmoid = torch.sigmoid(model_out[0])
+                model_out_prob = torch.nn.functional.softmax(model_out[0], dim =1)#torch.sigmoid(model_out[0])
 
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
-                train_metric.extend([batch_metric.cpu().item()])
-                #import pdb;pdb.set_trace()
+                if self.seg_type == 'left_right_lung':
+                    batch_metric = self.__compute_metric( torch.argmax(model_out_prob, dim=1).unsqueeze(0) == 1, y1_seg==1)
+                    train_metric.extend([batch_metric.cpu().item()])
+                    batch_metric_2 = self.__compute_metric( torch.argmax(model_out_prob, dim=1).unsqueeze(0) == 2, y1_seg==2)
+                    train_metric_2.extend([batch_metric_2.cpu().item()])
+                #batch_metric = self.__compute_metric( torch.argmax(model_out_prob, dim=1).unsqueeze(0), y1_seg)
+                #train_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
-                train_loss = self.__compute_loss( model_out[0], y1_seg) / self.update_size
+                both = True if batch_idx > 100 else False
+                train_loss = self.__compute_loss( model_out[0], y1_seg , both) / self.update_size
                 train_loss = train_loss / self.update_size #normalize loss
 
                 # backprop
@@ -245,17 +257,23 @@ class Trainer(baseTrainer):
                 # training progess batch and loss
                 if (batch_idx + 1) % self.print_every == 0:
                     print(
-                        "Batch {} - Train Loss: {:.6f}; Dice :{:.6f}".format(
-                            batch_idx, train_loss.item(), batch_metric.cpu().item()
+                        "Batch {} - Train Loss: {:.6f}; Dice left:{:.6f}; Dice right{:.6f}".format(
+                            batch_idx, train_loss.item(), batch_metric.cpu().item(), batch_metric_2.cpu().item()
                         )
                     )
                     #plot img and seg
                     for img_idx in [40,120,200]:
-                        fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+                        fig, ax = plt.subplots(1, 5, figsize=(15, 5))
                         ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        ax[2].imshow(torch.argmax(model_out_prob, dim=1).unsqueeze(0).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[3].imshow(model_out_prob[0, 1, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        ax[4].imshow(model_out_prob[0, 2, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+
+
+
+                        #ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        #ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
                         
                         #save fig
                         os.makedirs(os.path.join(self.exp_dir, 'figure', f'train_{i}'), exist_ok=True)
@@ -332,7 +350,7 @@ class Trainer(baseTrainer):
 
 
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
@@ -352,7 +370,7 @@ class Trainer(baseTrainer):
                         fig, ax = plt.subplots(1, 4, figsize=(15, 5))
                         ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
                         fig.suptitle(f"pid: {pids[batch_idx]}, prior (NA): {priorna[batch_idx]}")
 
@@ -419,7 +437,7 @@ class Trainer(baseTrainer):
                 #torch.save(model_out_sigmoid, os.path.join(self.exp_dir, 'pred_scores', split, f"{pids[batch_idx]}.pkl"))
 
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
@@ -455,21 +473,13 @@ class Trainer(baseTrainer):
         dice = DiceCoefficient()
         return dice(model_out, label)
 
-    def __compute_loss(self, model_out, label):
+    def __compute_loss(self, model_out, label, both = False):
 
         loss = []
         if 'DiceCELoss' in self.loss:
             dice_ce_loss = self.DiceCE_loss(model_out, label)
             loss.append(dice_ce_loss)
-        
-        if 'BoundaryLoss' in self.loss:
-            model_out_sigmoid = torch.sigmoid(model_out)
-            boundary_input = torch.cat([1-model_out_sigmoid, model_out_sigmoid], dim=1)
-            boundary_label = torch.cat([1-label, label], dim=1)
-            boundary_loss = self.boundary_loss(boundary_input, boundary_label)
-            loss.append(boundary_loss)
-
-        loss = sum(loss)
+        loss = torch.stack(loss).sum()
 
         return loss
 
@@ -481,6 +491,7 @@ class Trainer(baseTrainer):
             self.model.load_state_dict(ckpt["model"])
             self.optimizer.load_state_dict(ckpt["optimizer"])
             self.early_stopping = ckpt["early_stopping"]
+            self.early_stopping.early_stop = False
             if self.sche:
                 self.scheduler.load_state_dict(ckpt["scheduler"])
         else:

@@ -25,15 +25,17 @@ def argParser():
 
     # training
     parser.add_argument('--loss',  nargs='+', default=["DiceCELoss"], 
-                        help = "loss functions: DiceCELoss, BoundaryLoss"
+                        help = "loss functions: DiceCELoss, HausdorffDTLoss"
     )
 
     parser.add_argument(
         "--prior", action="store_true", default=False, help="include prior"
     )
-    parser.add_argument("--mask", action="store_true", default=False, help="mask imag")
-    parser.add_argument("--mask_size", type=int, default=20, help="mask size")
-    parser.add_argument("--mask_percent", type=int, default=40, help="mask percent")
+    parser.add_argument("--seg_type", type=str, default="lung", help="segmentation type", choices=['lung','left_right_lung'])
+    parser.add_argument("--mask", action="store_true", default=False, help="mask image")
+    parser.add_argument("--mask_size", type=int,  nargs='+', default=[7], help="mask size")
+    parser.add_argument("--offset", action="store_true", default=False, help="mask image offset")
+    parser.add_argument("--mask_percent", type=int,  nargs='+', default=[70], help="mask percent")
     parser.add_argument("--prior_type", type=str, default="seg", help="prior type", choices=['seg','img','both'])
     parser.add_argument("--freeze", action="store_true", default=False, help="freeze encoder")
     parser.add_argument("--opt", type=str, default="adam", help="optimizer")
@@ -83,6 +85,12 @@ def argParser():
         default=None,
         help="path to checkpoint",
     )
+    parser.add_argument(
+        "--ckpt",
+        type=str,
+        default=None,
+        help="checkpoint file"
+    )
     args = parser.parse_args()
     return args
 
@@ -102,11 +110,16 @@ def main(args):
         for key, value in prev_args.items():
             if key not in ["resume", "exp_dir", "epochs"]:
                 setattr(args, key, value)
-
+        if isinstance(args.mask_size, int):
+            args.mask_size = [args.mask_size]
+        if isinstance(args.mask_percent, int):
+            args.mask_percent = [args.mask_percent]
         # init model
         model = Trainer(args)
         # load checkpoint
+        model.ckpt_path = os.path.join(args.exp_dir, args.ckpt)
         model.load_prev()
+        
 
     else:
         # create experiment folder
@@ -116,7 +129,9 @@ def main(args):
         if args.prior:
             exp_name += f"_prior{args.prior}_{args.prior_type}"
         if args.mask:
-            exp_name += f"_mask{args.mask_size}_{args.mask_percent}"
+            exp_name += f"_mask{args.mask_size}_percent{args.mask_percent}"
+            if args.offset:
+                exp_name += '_offset'
             
         if args.freeze:
             exp_name += '_freeze'
@@ -145,14 +160,18 @@ def main(args):
         mode="train", 
         mask=args.mask, 
         mask_size=args.mask_size, 
-        mask_percent=args.mask_percent
+        mask_percent=args.mask_percent,
+        offset=args.offset,
+        seg_type=args.seg_type
     )
     val_dataset = TaskDataset(
         csv_file=args.csv_file, 
         mode="val",
         mask=args.mask,
         mask_size=args.mask_size,
-        mask_percent=args.mask_percent
+        mask_percent=args.mask_percent,
+        offset=args.offset,
+        seg_type=args.seg_type
     )
 
     test_dataset = TaskDataset(
@@ -160,7 +179,9 @@ def main(args):
         mode="test",
         mask=args.mask,
         mask_size=args.mask_size,
-        mask_percent=args.mask_percent
+        mask_percent=args.mask_percent,
+        offset=args.offset,
+        seg_type=args.seg_type
     )
 
     # init dataloader

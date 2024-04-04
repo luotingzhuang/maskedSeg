@@ -101,6 +101,7 @@ class PlainConvUNet(nn.Module):
                                         n_conv_per_stage, conv_bias, norm_op, norm_op_kwargs, dropout_op,
                                         dropout_op_kwargs, nonlin, nonlin_kwargs, return_skips=True,
                                         nonlin_first=nonlin_first)
+        
         if prior:
             if prior_type == 'seg' or prior_type == 'img':
                 n_elements = 2
