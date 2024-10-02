@@ -119,31 +119,31 @@ class PlainConvUNet(nn.Module):
         
         
 
-    def forward(self, model_input):
+    def forward(self, y1_img):
 
-        y0_img, y0_seg, y1_img = model_input
+        #y0_img, y0_seg, y1_img = model_input
 
         skips = self.encoder(y1_img)
-        if self.prior & (self.prior_type == 'seg'):
-            skips_2 = self.encoder(y0_seg)
-            for i in range(self.n_stages):
-                skips[i] = self.self_attention_module[i]((skips[i], skips_2[i]))
-            #for i in range(len(skips)):
-            #    skips[i] = skips[i] + skips_2[i]
-        elif self.prior & (self.prior_type == 'img'):
-            skips_2 = self.encoder(y0_img)
-            for i in range(self.n_stages):
-                skips[i] = self.self_attention_module[i]((skips[i], skips_2[i]))
-            #for i in range(len(skips)):
-            #    skips[i] = skips[i] + skips_2[i]    
-        elif self.prior & (self.prior_type == 'both'):
-            skips_2 = self.encoder(y0_img)
-            skips_3 = self.encoder(y0_seg)
-            for i in range(self.n_stages):
-                skips[i] = self.self_attention_module[i]((skips[i], skips_2[i], skips_3[i]))
+        # if self.prior & (self.prior_type == 'seg'):
+        #     skips_2 = self.encoder(y0_seg)
+        #     for i in range(self.n_stages):
+        #         skips[i] = self.self_attention_module[i]((skips[i], skips_2[i]))
+        #     #for i in range(len(skips)):
+        #     #    skips[i] = skips[i] + skips_2[i]
+        # elif self.prior & (self.prior_type == 'img'):
+        #     skips_2 = self.encoder(y0_img)
+        #     for i in range(self.n_stages):
+        #         skips[i] = self.self_attention_module[i]((skips[i], skips_2[i]))
+        #     #for i in range(len(skips)):
+        #     #    skips[i] = skips[i] + skips_2[i]    
+        # elif self.prior & (self.prior_type == 'both'):
+        #     skips_2 = self.encoder(y0_img)
+        #     skips_3 = self.encoder(y0_seg)
+        #     for i in range(self.n_stages):
+        #         skips[i] = self.self_attention_module[i]((skips[i], skips_2[i], skips_3[i]))
 
-            #for i in range(len(skips)):
-            #    skips[i] = skips[i] + skips_2[i] + skips_3[i]
+        #     #for i in range(len(skips)):
+        #     #    skips[i] = skips[i] + skips_2[i] + skips_3[i]
 
         return self.decoder(skips)
 

@@ -33,9 +33,10 @@ def argParser():
     )
     parser.add_argument("--seg_type", type=str, default="lung", help="segmentation type", choices=['lung','left_right_lung'])
     parser.add_argument("--mask", action="store_true", default=False, help="mask image")
-    parser.add_argument("--mask_size", type=int,  nargs='+', default=[7], help="mask size")
-    parser.add_argument("--offset", action="store_true", default=False, help="mask image offset")
-    parser.add_argument("--mask_percent", type=int,  nargs='+', default=[70], help="mask percent")
+    # parser.add_argument("--mask_size", type=int,  nargs='+', default=[7], help="mask size")
+    # parser.add_argument("--offset", action="store_true", default=False, help="mask image offset")
+    # parser.add_argument("--mask_percent", type=int,  nargs='+', default=[70], help="mask percent")
+    parser.add_argument("--mask_dir", type=str, default="", help="path to mask directory")
     parser.add_argument("--prior_type", type=str, default="seg", help="prior type", choices=['seg','img','both'])
     parser.add_argument("--freeze", action="store_true", default=False, help="freeze encoder")
     parser.add_argument("--opt", type=str, default="adam", help="optimizer")
@@ -110,10 +111,10 @@ def main(args):
         for key, value in prev_args.items():
             if key not in ["resume", "exp_dir", "epochs"]:
                 setattr(args, key, value)
-        if isinstance(args.mask_size, int):
-            args.mask_size = [args.mask_size]
-        if isinstance(args.mask_percent, int):
-            args.mask_percent = [args.mask_percent]
+        # if isinstance(args.mask_size, int):
+        #     args.mask_size = [args.mask_size]
+        # if isinstance(args.mask_percent, int):
+        #     args.mask_percent = [args.mask_percent]
         # init model
         model = Trainer(args)
         # load checkpoint
@@ -128,10 +129,10 @@ def main(args):
             exp_name += f"_{loss}"        
         if args.prior:
             exp_name += f"_prior{args.prior}_{args.prior_type}"
-        if args.mask:
-            exp_name += f"_mask{args.mask_size}_percent{args.mask_percent}"
-            if args.offset:
-                exp_name += '_offset'
+        #if args.mask:
+            # exp_name += f"_mask{args.mask_size}_percent{args.mask_percent}"
+            # if args.offset:
+            #     exp_name += '_offset'
             
         if args.freeze:
             exp_name += '_freeze'
@@ -140,7 +141,7 @@ def main(args):
             exp_name += f"_{args.sche}_max{args.max_epoch}"
 
 
-        exp_dir = os.path.join(args.result_dir, exp_name)
+        exp_dir = os.path.join(args.result_dir, args.mask_dir.split('/')[-1] , exp_name)
         if not os.path.exists(exp_dir):
             os.makedirs(exp_dir)
         else:
@@ -159,29 +160,32 @@ def main(args):
         csv_file=args.csv_file,
         mode="train", 
         mask=args.mask, 
-        mask_size=args.mask_size, 
-        mask_percent=args.mask_percent,
-        offset=args.offset,
+        mask_dir=args.mask_dir,
+        # mask_size=args.mask_size, 
+        # mask_percent=args.mask_percent,
+        # offset=args.offset,
         seg_type=args.seg_type
     )
     val_dataset = TaskDataset(
         csv_file=args.csv_file, 
         mode="val",
         mask=args.mask,
-        mask_size=args.mask_size,
-        mask_percent=args.mask_percent,
-        offset=args.offset,
-        seg_type=args.seg_type
+        mask_dir=args.mask_dir,
+        # mask_size=args.mask_size,
+        # mask_percent=args.mask_percent,
+        # offset=args.offset,
+        #seg_type=args.seg_type
     )
 
     test_dataset = TaskDataset(
         csv_file=args.csv_file, 
         mode="test",
         mask=args.mask,
-        mask_size=args.mask_size,
-        mask_percent=args.mask_percent,
-        offset=args.offset,
-        seg_type=args.seg_type
+        mask_dir=args.mask_dir,
+        # mask_size=args.mask_size,
+        # mask_percent=args.mask_percent,
+        # offset=args.offset,
+        #seg_type=args.seg_type
     )
 
     # init dataloader
