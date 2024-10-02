@@ -159,11 +159,15 @@ class TaskDataset(Dataset):
 #                                                  replace = set_y1_img,
 #                                                  offset = self.offset
 
-            mask_idx = np.random.choice(range(5000),1)[0]
-
-            with gzip.open(os.path.join(self.mask_dir, f'mask_{mask_idx}.pkl'), 'r') as f:
-                mask = pickle.load(f)
-            
+            if len(self.mask_dir) == 1:
+                mask_idx = np.random.choice(range(5000),1)[0]
+                with gzip.open(os.path.join(self.mask_dir[0], f'mask_{mask_idx}.pkl'), 'r') as f:
+                    mask = pickle.load(f)
+            else:
+                selected_mask_dir = random.choice(self.mask_dir)
+                mask_idx = np.random.choice(range(1250),1)[0]
+                with gzip.open(os.path.join(selected_mask_dir, f'mask_{mask_idx}.pkl'), 'r') as f:
+                    mask = pickle.load(f)
             y1_img[torch.tensor(mask).bool()] = 1.0
 
 

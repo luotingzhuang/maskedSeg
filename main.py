@@ -36,7 +36,7 @@ def argParser():
     # parser.add_argument("--mask_size", type=int,  nargs='+', default=[7], help="mask size")
     # parser.add_argument("--offset", action="store_true", default=False, help="mask image offset")
     # parser.add_argument("--mask_percent", type=int,  nargs='+', default=[70], help="mask percent")
-    parser.add_argument("--mask_dir", type=str, default="", help="path to mask directory")
+    parser.add_argument("--mask_dir", type=str, nargs = '+', default="", help="path to mask directory")
     parser.add_argument("--prior_type", type=str, default="seg", help="prior type", choices=['seg','img','both'])
     parser.add_argument("--freeze", action="store_true", default=False, help="freeze encoder")
     parser.add_argument("--opt", type=str, default="adam", help="optimizer")
@@ -140,8 +140,11 @@ def main(args):
         if args.sche:
             exp_name += f"_{args.sche}_max{args.max_epoch}"
 
+        if len(args.mask_dir) == 1:
+            exp_dir = os.path.join(args.result_dir,  args.mask_dir.split('/')[-1], exp_name)
+        else:
+            exp_dir = os.path.join(args.result_dir,  'combined', exp_name)
 
-        exp_dir = os.path.join(args.result_dir, args.mask_dir.split('/')[-1] , exp_name)
         if not os.path.exists(exp_dir):
             os.makedirs(exp_dir)
         else:

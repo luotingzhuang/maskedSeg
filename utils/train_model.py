@@ -538,9 +538,7 @@ class Trainer(baseTrainer):
             index=["loss", "dice"]#"dice_left", "dice_right"],
         )
         results = pd.concat([results], axis=0)
-
-
-
+        
         return results
 
     @staticmethod
