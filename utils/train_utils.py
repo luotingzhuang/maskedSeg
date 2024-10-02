@@ -80,11 +80,18 @@ class EarlyStopping:
             )
         torch.save({"model": model.state_dict()}, ckpt_path)
 
-def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, replace = 0):
+def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, replace = 0, offset = False):
 
     # Get image dimensions
-    _ ,depth, height, width = img.shape
-
+    if offset:
+        offset_x, offset_y, offset_z  = np.random.randint(0, patch_size[0], size =3)
+    else:
+        offset_x, offset_y, offset_z  = 0, 0 , 0
+        
+    depth = img.shape[1] - offset_x
+    height = img.shape[2] - offset_y
+    width = img.shape[3] - offset_z
+    
     patches_in_depth = depth // patch_size[0]
     patches_in_height = height // patch_size[1]
     patches_in_width = width // patch_size[2]
@@ -102,12 +109,11 @@ def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, rep
         z_idx = index // (patches_in_height * patches_in_width)
         y_idx = (index % (patches_in_height * patches_in_width)) // patches_in_width
         x_idx = (index % (patches_in_height * patches_in_width)) % patches_in_width
-
-        mask[:, z_idx * patch_size[0]:(z_idx + 1) * patch_size[0],
-            y_idx * patch_size[1]:(y_idx + 1) * patch_size[1],
-            x_idx * patch_size[2]:(x_idx + 1) * patch_size[2]] = 1
+        mask[:, z_idx * patch_size[0] + offset_x:(z_idx + 1) * patch_size[0] + offset_x,
+            y_idx * patch_size[1] + offset_y:(y_idx + 1) * patch_size[1] + offset_y,
+            x_idx * patch_size[2] + offset_z:(x_idx + 1) * patch_size[2] + offset_z] = 1
 
     # Apply the mask to the 3D image
-    img[mask] = replace
+    img[mask.bool()] = replace
 
     return img

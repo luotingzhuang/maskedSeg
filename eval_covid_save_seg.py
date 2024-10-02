@@ -14,9 +14,11 @@ from utils.train_utils import random_mask_patches_3d
 from dataset.dataloader import TaskDataset
 import json
 from tqdm import tqdm
-from utils.metric_utils import DiceCoefficient
-from monai.transforms.utils import allow_missing_keys_mode
+from utils.metric_utils import Seg_Metirc3d
+from monai.metrics import HausdorffDistanceMetric
+from monai.transforms.utils import allow_missing_keys_mode, fill_holes
 from monai.data import MetaTensor
+
 from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
@@ -30,154 +32,196 @@ from monai.transforms import (
     ThresholdIntensityd,
     NormalizeIntensityd,
     RandAffined,
-    ScaleIntensityd
+    ScaleIntensityd,
 )
-import numpy as np
+import random
+from utils.eval_utils import get_metrics, find_connected_components, return_nodule
+from utils.eval_utils import MyArgs
+import sys
 
-class MyArgs:
-    def __init__(self, **kwargs):
-        # Assign all keyword arguments to attributes
-        self.__dict__.update(kwargs)
-        self.sche = None
-        self.max_epoch = 50
+transforms = Compose(
+    [
+        LoadImaged(keys=["img", "label"]),
+        EnsureChannelFirstd(keys=["img", "label"]),
+        Orientationd(keys=["img", "label"], axcodes="RAS"),
+        Spacingd(
+            keys=["img", "label"], pixdim=(1.5, 1.5, 1.5), mode=("bilinear", "nearest")
+        ),
+        ThresholdIntensityd(keys="img", threshold=-1024.0, above=True, cval=-1024.0),
+        ThresholdIntensityd(
+            keys="img",
+            threshold=276.0,
+            above=False,
+            cval=276.0,
+        ),
+        NormalizeIntensityd(
+            keys="img", subtrahend=-370.00039267657144, divisor=436.5998675471528
+        ),
+        ResizeWithPadOrCropd(
+            keys=["img", "label"], spatial_size=(224, 224, 224), mode="constant"
+        ),
+    ]
+)
 
-def load_img(path):
-    sitk_img = sitk.ReadImage(path)
-    sit_arr = sitk.GetArrayFromImage(sitk_img)
-    return sitk_img, sit_arr
-
-# plot y1_img, y1_seg, pred_seg
-
-def plot_img(arrs):
-    fig, ax = plt.subplots(1,len(arrs) , figsize = (len(arrs) * 5, 10))
-    for i, (title, arr) in enumerate(arrs.items()):
-        ax[i].imshow(arr,cmap = 'gray')
-        ax[i].set_xticks([]) 
-        ax[i].set_yticks([]) 
-        ax[i].set_title(title)
-        
-    plt.show()
-
-
-
-transforms = Compose([
-    LoadImaged(keys=['img', 'label']),
-    EnsureChannelFirstd(keys=['img', 'label']),
-    Orientationd(keys=['img', 'label'], axcodes='RAS'),
-    Spacingd(keys=['img', 'label'], pixdim=(1.5, 1.5, 1.5), mode=("bilinear", "nearest")),
-    ThresholdIntensityd(keys = 'img', threshold =-1024.0, above = True, cval = -1024.0),
-    ThresholdIntensityd(keys = 'img', threshold = 276.0, above = False, cval = 276.0,),
-    NormalizeIntensityd(keys = 'img', subtrahend  = -370.00039267657144, divisor = 436.5998675471528),
-    ResizeWithPadOrCropd(keys=['img', 'label'], spatial_size =(224,224,224), mode = 'constant'),
-])
-
-
-
+simple_transforms = Compose(
+    [
+        LoadImaged(keys=["img"]),
+        EnsureChannelFirstd(keys=["img"]),
+        Orientationd(keys=["img"], axcodes="RAS"),
+    ]
+)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-
-def sensitivity_path(lung,path):
-    return torch.sum(torch.mul(lung,path)) / torch.sum(path)
-
-def precision_path(lung,path):
-    return torch.sum(torch.mul(lung,path)) / torch.sum(lung)
-
-
-
-def eval(all_cases, idx, model, n = 100, thresholds = [0.5]):
-
+def eval(all_cases, idx, model, n=100, thresholds=[0.6], result_dir=None, only_gt = False):
+    print(all_cases[idx])
     y1_img_path = os.path.join(covid_path, 'COVID-19-CT-Seg_20cases', all_cases[idx])
     y1_seg_path = os.path.join(covid_path, 'Lung_and_Infection_Mask', all_cases[idx])
-
+    lungmask_path = os.path.join(covid_path, 'predicted', all_cases[idx].split('.')[0],'lungmask','lung.nii.gz')
+    totalseg_path = os.path.join(covid_path, 'predicted', all_cases[idx].split('.')[0],'totalsegmentator','lung.nii.gz')
     output = transforms({'img': y1_img_path, 'label': y1_seg_path})
     y1_img, y1_seg = output['img'], output['label']
+    set_y1_img = 1 
 
 
-    set_y1_img = torch.quantile(y1_img, 0.9)
+    # load the image
+    output = simple_transforms({'img': y1_img_path})
+    original_img = output['img'].squeeze().numpy()
+    original_img[original_img<-1000]  = -1000
+    original_img[original_img>1000]  = 1000
 
-    #bootstrap
-    np.random.seed(10)
+    output = simple_transforms({'img': lungmask_path})
+    lungmask_seg = output['img'].squeeze().numpy()
+
+    output = simple_transforms({'img': totalseg_path})
+    total_seg = output['img'].squeeze().numpy()
+
+    output = simple_transforms({'img': y1_seg_path})
+    corrected_seg = output['img'].squeeze().numpy()
+
+
+    original_img = np.flip(original_img,0)
+    lungmask_seg = np.flip(lungmask_seg,0)
+    total_seg = np.flip(total_seg,0)
+    corrected_seg = np.flip(corrected_seg,0)
+    
+    
+    only_gt = False
     bootstrap = []
-    for _ in tqdm(range(n)):
-        y1_img_mask = random_mask_patches_3d(y1_img.clone(), 
-                                            patch_size=(args.mask_size, args.mask_size, args.mask_size), 
-                                            mask_percentage=args.mask_percent, replace = set_y1_img)
-        y1_img_mask = y1_img_mask.unsqueeze(0).to(device)
-        ph_1 = torch.zeros(y1_img_mask.shape).to(device)
-        ph_2 = torch.zeros(y1_img_mask.shape).to(device)
-        with torch.no_grad():
-            model_input = (ph_1, ph_2, y1_img_mask)
-            model_out = model(model_input)
-            model_out_sigmoid = torch.sigmoid(model_out[0])
-            bootstrap.append(model_out_sigmoid)
+    if not only_gt:
+        for _ in tqdm(range(n)):
+            with torch.cuda.amp.autocast():
 
-    pred = torch.stack(bootstrap) > thresh
-    count_ones = torch.sum(pred, dim=0)
-    majority_pred = count_ones >= n / 2
-    mean_sigmoid = torch.mean(torch.stack(bootstrap), dim=0)
+                if isinstance(args.mask_size, int):
+                    ms = args.mask_size
+                else:
+                    ms = random.choice(args.mask_size)
 
-    output = transforms({'img': y1_img_path, 'label': y1_seg_path})
+                if isinstance(args.mask_percent, int):
+                    mp = args.mask_percent
+                else:
+                    mp = random.choice(args.mask_percent)
 
-    with allow_missing_keys_mode(transforms):
-        majority_seg = majority_pred.squeeze(0).detach().cpu().float()
-        majority_seg = MetaTensor(majority_seg).copy_meta_from(y1_seg)
-        majority_seg.applied_operations =output['label'].applied_operations
-        inverted_seg = transforms.inverse({'label':majority_seg})
-        
-    majority_seg = inverted_seg['label'].squeeze().numpy()
+                # y1_img_mask = y1_img.clone()
+                y1_img_mask = random_mask_patches_3d(
+                    y1_img.clone(),
+                    patch_size=(ms, ms, ms),
+                    mask_percentage=mp,
+                    replace=set_y1_img,
+                    offset=False,
+                )
+                y1_img_mask = y1_img_mask.unsqueeze(0).to(device)
+                ph_1 = torch.zeros(y1_img_mask.shape).to(device)
+                ph_2 = torch.zeros(y1_img_mask.shape).to(device)
+                with torch.no_grad():
+                    model_input = (ph_1, ph_2, y1_img_mask)
+                    model_out = model(model_input)
+                    model_out_sigmoid = torch.sigmoid(model_out[0])
+                    bootstrap.append(model_out_sigmoid)
 
-    output = transforms({'img': y1_img_path, 'label': y1_seg_path})
+        bootstrap = torch.stack(bootstrap)
 
-    with allow_missing_keys_mode(transforms):
-        seg = (mean_sigmoid > thresh).squeeze(0).detach().cpu().float()
-        seg = MetaTensor(seg).copy_meta_from(y1_seg)
-        seg.applied_operations =output['label'].applied_operations
-        inverted_seg = transforms.inverse({'label':seg})
-        
-    mean_seg = inverted_seg['label'].squeeze().numpy()
+        for thresh in thresholds:
+            mean_sigmoid = torch.mean(bootstrap, dim=0)
+            std_sigmoid = torch.std(bootstrap, dim=0)
 
-    return majority_seg, mean_seg
+            # invert the transformation so that the segmentation is in original size
+            output = transforms({"img": y1_img_path, "label": y1_seg_path})
+            with allow_missing_keys_mode(transforms):
+                seg = (mean_sigmoid > thresh).squeeze(0).detach().cpu().float()
+                seg = MetaTensor(seg).copy_meta_from(y1_seg)
+                seg.applied_operations = output["label"].applied_operations
+                inverted_seg = transforms.inverse({"label": seg})
+            mean_seg = inverted_seg["label"].squeeze().numpy()
+            mean_seg, large_components = find_connected_components(mean_seg, 1000000)
+            mean_seg[mean_seg > 0] = 1
+
+            output = transforms({"img": y1_img_path, "label": y1_seg_path})
+            with allow_missing_keys_mode(transforms):
+                seg = std_sigmoid.squeeze(0).detach().cpu().float()
+                seg = MetaTensor(seg).copy_meta_from(y1_seg)
+                seg.applied_operations = output["label"].applied_operations
+                inverted_seg = transforms.inverse({"label": seg})
+            std_seg = inverted_seg["label"].squeeze().numpy()
+
+
+            np.savez(
+                os.path.join(result_dir, f"mean_thresh{thresh}", f"{all_cases[idx]}.npz"),
+                **{
+                    "mean_seg": mean_seg,
+                    "std_seg": std_seg,
+                },
+            )
+    else:
+        os.makedirs(os.path.join(result_dir, f"save_img"),exist_ok = True)
+        np.savez(
+            os.path.join(result_dir, f"save_img", f"{all_cases[idx]}.npz"),
+            **{
+                "original_img": original_img,
+                "corrected_seg": corrected_seg,
+                "lungmask_seg": lungmask_seg,
+                "total_seg": total_seg,
+            },
+        )
+
 
 if __name__ == "__main__":
 
-    path = '/workspace/radraid/projects/longitudinal_lung/temporal_seg/temporalSeg/results_random_mask_new'
-    #all_exp = [i for i in os.listdir(path) if 'ipynb' not in i]
-    #all_exp.sort()
+    path = "/workspace/radraid/projects/seg_lung/masked_seg/maskedSeg/results_update"
 
-    all_exp = [
-        'exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask14_70_freeze',
-        'exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask28_70_freeze',
-        #'exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask2_70_freeze',
-        'exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask4_70_freeze',
-        'exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask7_70_freeze']
-    for exp in tqdm(all_exp):
-        exp_dir = os.path.join(path,exp)
-        with open(os.path.join(exp_dir, "args.json"), "r") as file:
-            loaded_args = json.load(file)
-            
-        args = MyArgs(**loaded_args)
-        covid_path = '/workspace/radraid/projects/longitudinal_lung/covid19_20'
-        all_cases = [i for i in os.listdir(os.path.join(covid_path, 'COVID-19-CT-Seg_20cases' )) if 'nii.gz' in i]
-        all_cases.sort()
-        #all_cases = all_cases[0:9]
+    #input the name of experiment
+    exp = sys.argv[1]
+    print(exp)
+    exp_dir = os.path.join(path, exp)
+    with open(os.path.join(exp_dir, "args.json"), "r") as file:
+        loaded_args = json.load(file)
 
-        #model
-        model = Trainer(args).model
-        model = model.to(device)
-        model.load_state_dict(torch.load(os.path.join(exp_dir,
-                                                    'es_checkpoint.pth.tar'))["model"])
-        model.eval()
-        thresh = 0.6
+    args = MyArgs(**loaded_args)
 
-        result_dir = os.path.join(covid_path, 'model_results', args.exp_dir.split('/')[-1])
-        os.makedirs(result_dir, exist_ok = True)
-        os.makedirs(os.path.join(result_dir, f"majority_thresh{thresh}"), exist_ok = True)
-        os.makedirs(os.path.join(result_dir, f"mean_thresh{thresh}"), exist_ok = True)
+    covid_path = '/workspace/radraid/projects/seg_lung/covid19_20'
+    all_cases = [i for i in os.listdir(os.path.join(covid_path, 'COVID-19-CT-Seg_20cases' )) if 'nii.gz' in i]
+    
+    only_gt = False
+    # model
+    model = Trainer(args).model
+    model = model.to(device)
+    model.load_state_dict(
+        torch.load(os.path.join(exp_dir, "es_checkpoint.pth.tar"))["model"]
+    )
+    model.eval()
+    threshs = [0.5 , 0.55, 0.6, 0.65, 0.7]
+    n = 100
+    result_dir = os.path.join(
+        "/workspace/radraid/projects/seg_lung/masked_seg/maskedSeg",
+        "model_results",
+        args.exp_dir.split("/")[-1],
+        f"pred_seg_{n}",
+    )
+    os.makedirs(result_dir, exist_ok=True)
+    for thresh in threshs:
+        os.makedirs(os.path.join(result_dir, f"mean_thresh{thresh}"), exist_ok=True)
 
-
-        for idx in tqdm(range(len(all_cases))):
-            majority_seg, mean_seg = eval(all_cases, idx, model, n=100, thresholds=thresh)
-
-            np.save(os.path.join(result_dir,f'majority_thresh{thresh}', f"{all_cases[idx].split('.')[0]}.npy"), majority_seg)
-            np.save(os.path.join(result_dir,f'mean_thresh{thresh}' ,f"{all_cases[idx].split('.')[0]}.npy"), mean_seg)
+    for idx in tqdm(range(len(all_cases))):
+        eval(
+            all_cases, idx, model, n=n, thresholds=threshs, result_dir=result_dir, only_gt = only_gt
+        )

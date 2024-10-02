@@ -18,8 +18,8 @@ import logging
 from tensorboardX import SummaryWriter
 import monai
 import sys
-sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/nnUNet')
-sys.path.insert(0,'/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/dynamic-network-architectures')
+sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/nnUNet')
+sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/dynamic-network-architectures')
 
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 from nnunetv2.utilities.label_handling.label_handling import  determine_num_input_channels
@@ -54,6 +54,7 @@ class baseTrainer:
         self.log = args.log
         self.print_every = args.print_every
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.seg_type = args.seg_type
 
         self.__init_model()
         self.__init_loss()
@@ -78,14 +79,15 @@ class baseTrainer:
 
     def __init_loss(self):
         print(f"Initiate {self.loss} loss", end=" ")
-        self.DiceCE_loss = monai.losses.DiceCELoss(softmax=True, squared_pred=True, reduction='mean')
-        self.boundary_loss = BoundaryLoss(1)
+        self.DiceCE_loss = monai.losses.DiceCELoss(include_background = False,softmax=True, squared_pred=True, reduction='mean', to_onehot_y = True)
+        self.HausdorffDT_loss = monai.losses.HausdorffDTLoss(softmax=True, reduction='mean')
+        #self.boundary_loss = BoundaryLoss(1)
         print("...done")
 
     def __init_model(self):
         print(f"Initiate  model", end=" ")
 
-        total_weights = torch.load('/workspace/radraid/projects/longitudinal_lung/temporal_seg/totalsegmentator/checkpoint_final.pth')
+        total_weights = torch.load('/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/checkpoint_final.pth')
         plans_manager = PlansManager(total_weights['init_args']['plans'])
         configuration_manager = plans_manager.get_configuration(total_weights['init_args']['configuration'])
         dataset_json = total_weights['init_args']['dataset_json']
@@ -119,6 +121,11 @@ class baseTrainer:
             }
         }
 
+        if self.seg_type == 'lung':
+            num_classes = 1#2
+        elif self.seg_type == 'left_right_lung':
+            num_classes = 3
+
         self.model = PlainConvUNet(
             input_channels=num_input_channels,
             n_stages=num_stages,
@@ -127,7 +134,7 @@ class baseTrainer:
             conv_op=conv_op,
             kernel_sizes=configuration_manager.conv_kernel_sizes,
             strides=configuration_manager.pool_op_kernel_sizes,
-            num_classes=1,
+            num_classes=num_classes,
             deep_supervision=deep_supervision,
             prior= self.prior,
             prior_type= self.prior_type,
@@ -136,9 +143,12 @@ class baseTrainer:
         )
         self.model.apply(InitWeights_He(1e-2))
         
-        self.model.load_state_dict({i:j for i,j in total_weights['network_weights'].items() if 'decoder.seg_layers' not in i}, 
+        #self.model.load_state_dict({i:j for i,j in total_weights['network_weights'].items() if 'decoder.seg_layers' not in i}, 
+        #              strict = False)
+
+        lung_weight = torch.load('/workspace/radraid/projects/seg_lung/masked_seg/maskedSeg/results_update/exp_adam_lr0.001_bs1_us64_seed0_DiceCELoss_mask[4, 7, 14, 28]_70_freeze/es_checkpoint.pth.tar')
+        self.model.load_state_dict({i:j for i,j in lung_weight.items() if 'decoder.seg_layers' not in i}, 
                       strict = False)
-        
         print("...done")
 
         if self.freeze:
@@ -210,26 +220,41 @@ class Trainer(baseTrainer):
             # training
             train_loss_sum = 0
             train_metric = []
-            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(train_loader)):
+            #train_metric_2 = []
+            # for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(train_loader)):
                 #print(y0_img.shape, y0_seg.shape, y1_img.shape, y1_seg.shape)
-                y0_img = y0_img.to(self.device)
-                y0_seg = y0_seg.to(self.device)
+                # y0_img = y0_img.to(self.device)
+                # y0_seg = y0_seg.to(self.device)
+            
+            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(train_loader)):
                 y1_img = y1_img.to(self.device)
                 y1_seg = y1_seg.to(self.device)
 
-                model_input = (y0_img, y0_seg, y1_img)
-
+                # model_input = (y0_img, y0_seg, y1_img)
+                
                 # run model
-                model_out = self.model(model_input)
-                model_out_sigmoid = torch.sigmoid(model_out[0])
+                # model_out = self.model(model_input)
 
+                model_out = self.model(y1_img)
+                model_out_sigmoid = torch.sigmoid(model_out[0])
+                #model_out_prob = torch.nn.functional.softmax(model_out[0], dim =1)#torch.sigmoid(model_out[0])
+                # mean_pred = torch.zeros([1,1,224,224,224]).to(self.device)
+                # mean_pred[model_out_prob[:,[1],:,:,:]>0.6] = 1
+                # mean_pred[model_out_prob[:,[2],:,:,:]>0.6] = 2
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                # if self.seg_type == 'left_right_lung':
+                #     batch_metric = self.__compute_metric( mean_pred == 1, y1_seg==1)
+                #     train_metric.extend([batch_metric.cpu().item()])
+                #     batch_metric_2 = self.__compute_metric( mean_pred == 2, y1_seg==2)
+                #     train_metric_2.extend([batch_metric_2.cpu().item()])
+                # elif self.seg_type == 'lung':
+
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
                 train_metric.extend([batch_metric.cpu().item()])
-                #import pdb;pdb.set_trace()
 
                 # compute loss
-                train_loss = self.__compute_loss( model_out[0], y1_seg) / self.update_size
+                both = True if batch_idx > 100 else False
+                train_loss = self.__compute_loss( model_out[0], y1_seg , both) / self.update_size
                 train_loss = train_loss / self.update_size #normalize loss
 
                 # backprop
@@ -244,17 +269,26 @@ class Trainer(baseTrainer):
 
                 # training progess batch and loss
                 if (batch_idx + 1) % self.print_every == 0:
-                    print(
-                        "Batch {} - Train Loss: {:.6f}; Dice :{:.6f}".format(
-                            batch_idx, train_loss.item(), batch_metric.cpu().item()
-                        )
+                    # print(
+                    #     "Batch {} - Train Loss: {:.6f}; Dice left:{:.6f}; Dice right{:.6f}".format(
+                    #         batch_idx, train_loss.item() * self.update_size, batch_metric.cpu().item()#, batch_metric_2.cpu().item()
+                    #     )
+                    # )
+
+                    print("Batch {} - Train Loss: {:.6f}; Dice : {:.6f}".format(
+                        batch_idx, train_loss.item() * self.update_size, batch_metric.cpu().item()
+                    )
                     )
                     #plot img and seg
-                    for img_idx in [40,120,200]:
-                        fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+                    for img_idx in [60,120,180]:
+                        fig, ax = plt.subplots(1, 5, figsize=(15, 5))
                         ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        # ax[2].imshow(torch.argmax(model_out_prob, dim=1).unsqueeze(0).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        # ax[3].imshow(model_out_prob[0, 1, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        # ax[4].imshow(model_out_prob[0, 2, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+
+                        ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
                         
                         #save fig
@@ -272,8 +306,14 @@ class Trainer(baseTrainer):
 
             train_loss_mean = train_loss_sum / len(train_loader)
             train_metric_mean = np.mean(train_metric)
+            # train_metric_mean_2 = np.mean(train_metric_2)
+            # print(
+            #     "Epoch {} - Train Loss: {:.6f}; Dice left: {:.6f}; Dice right: {:.6f}".format(
+            #         i, train_loss_mean, train_metric_mean#, train_metric_mean_2
+            #     )
+            # )
             print(
-                "Epoch {} - Train Loss: {:.6f}; Metric: {:.6f}".format(
+                "Epoch {} - Train Loss: {:.6f}; Dice : {:.6f}".format(
                     i, train_loss_mean, train_metric_mean
                 )
             )
@@ -281,7 +321,9 @@ class Trainer(baseTrainer):
             # log training
             if self.writer:
                 self.writer.add_scalar("train/Total_loss", train_loss_mean, i)
-                self.writer.add_scalar("train/Metric", train_metric_mean, i)
+                # self.writer.add_scalar("train/Dice left", train_metric_mean, i)
+                # self.writer.add_scalar("train/Dice right", train_metric_mean_2, i)
+                self.writer.add_scalar("train/Dice", train_metric_mean, i)
 
             # validation
             earlystop = self.__eval(i, val_loader)
@@ -312,27 +354,41 @@ class Trainer(baseTrainer):
     def __eval(self, cur, val_loader: torch.utils.data.DataLoader) -> bool:
         val_loss_sum = 0
         val_metric = []
+        #val_metric_2 = []
 
         pids = val_loader.dataset.data.pid.values
-        priorna = val_loader.dataset.data.y0_seg.isna().values
+        #priorna = val_loader.dataset.data.y0_seg.isna().values
 
         self.model.eval()
         with torch.no_grad():
-            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
-                y0_img = y0_img.to(self.device)
-                y0_seg = y0_seg.to(self.device)
+            # for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
+            #     y0_img = y0_img.to(self.device)
+            #     y0_seg = y0_seg.to(self.device)
+            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(val_loader)):
                 y1_img = y1_img.to(self.device)
                 y1_seg = y1_seg.to(self.device)
 
-                model_input = (y0_img, y0_seg, y1_img)
+                #model_input = (y0_img, y0_seg, y1_img)
 
                 # run model
-                model_out = self.model(model_input)         
+                #model_out = self.model(model_input)        
+                model_out = self.model(y1_img)
+
+                model_out_prob = torch.nn.functional.softmax(model_out[0], dim =1)#torch.sigmoid(model_out[0])
+                # mean_pred = torch.zeros([1,1,224,224,224]).to(self.device)
+                # mean_pred[model_out_prob[:,[1],:,:,:]>0.6] = 1
+                # mean_pred[model_out_prob[:,[2],:,:,:]>0.6] = 2
+                # # compute metric
+                # if self.seg_type == 'left_right_lung':
+                #     batch_metric = self.__compute_metric( mean_pred == 1, y1_seg==1)
+                #     val_metric.extend([batch_metric.cpu().item()])
+                #     batch_metric_2 = self.__compute_metric( mean_pred == 2, y1_seg==2)
+                #     val_metric_2.extend([batch_metric_2.cpu().item()])
+
+                # elif self.seg_type == 'lung':
                 model_out_sigmoid = torch.sigmoid(model_out[0])
-
-
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
@@ -340,21 +396,30 @@ class Trainer(baseTrainer):
                 val_loss_sum += val_loss.item()
 
 
-
                 if batch_idx % self.print_every == 0:
-                    print(
-                        "Batch {} - Val Loss: {:.6f}; Dice :{:.6f}".format(
-                            batch_idx, val_loss.item(), batch_metric.cpu().item()
-                        )
+                    # print(
+                    #     "Batch {} - Train Loss: {:.6f}; Dice left:{:.6f}; Dice right{:.6f}".format(
+                    #         batch_idx, val_loss.item(), batch_metric.cpu().item(), batch_metric_2.cpu().item()
+                    #     )
+                    # )
+
+                    print("Batch {} - Train Loss: {:.6f}; Dice : {:.6f}".format(
+                        batch_idx, val_loss.item(), batch_metric.cpu().item())
                     )
+
                     #plot img and seg
-                    for img_idx in [40,120,200]:
-                        fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+                    for img_idx in [50,120,180]:
+                        fig, ax = plt.subplots(1, 5, figsize=(15, 5))
                         ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[2].imshow((model_out_sigmoid > 0.7).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        # ax[2].imshow(torch.argmax(model_out_prob, dim=1).unsqueeze(0).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        # ax[3].imshow(model_out_prob[0, 1, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        # ax[4].imshow(model_out_prob[0, 2, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
+                        ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")    
                         ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
-                        fig.suptitle(f"pid: {pids[batch_idx]}, prior (NA): {priorna[batch_idx]}")
+
+            
+                        fig.suptitle(f"pid: {pids[batch_idx]}")
 
                         #save fig
                         os.makedirs(os.path.join(self.exp_dir, 'figure',f"val_{cur}"), exist_ok=True)
@@ -364,15 +429,23 @@ class Trainer(baseTrainer):
 
         val_loss_mean = val_loss_sum / len(val_loader)
         val_metric_mean = np.mean(val_metric)
+        # val_metric_mean_2 = np.mean(val_metric_2)
+        # print(
+        #     "Epoch {} - Validation Loss : {:.6f}; Dice left: {:.6f} ; Dice right: {:.6f}".format(
+        #         cur, val_loss_mean, val_metric_mean, val_metric_mean_2
+        #     )
+        # )
         print(
-            "Epoch {} - Validation Loss : {:.6f}; Dice: {:.6f} ".format(
+            "Epoch {} - Validation Loss : {:.6f}; Dice : {:.6f}".format(
                 cur, val_loss_mean, val_metric_mean
-            )
+            )   
         )
 
         if self.writer:
             self.writer.add_scalar("val/Total_loss", val_loss_mean, cur)
-            self.writer.add_scalar("val/Metric", val_metric_mean, cur)
+            # self.writer.add_scalar("val/Dice left", val_metric_mean, cur)
+            # self.writer.add_scalar("val/Dice right", val_metric_mean_2, cur)
+            self.writer.add_scalar("val/Dice", val_metric_mean, cur)
 
         # early stopping
         if self.es:
@@ -399,27 +472,42 @@ class Trainer(baseTrainer):
 
         val_loss_sum = 0
         val_metric = []
+        val_metric_2 = []
         os.makedirs(os.path.join(self.exp_dir, 'pred_scores', split), exist_ok=True)
         pids = val_loader.dataset.data.pid.values
 
         with torch.no_grad():
-            for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
-                y0_img = y0_img.to(self.device)
-                y0_seg = y0_seg.to(self.device)
+            # for batch_idx, (y0_img, y0_seg, y1_img, y1_seg) in enumerate(tqdm(val_loader)):
+            #     y0_img = y0_img.to(self.device)
+            #     y0_seg = y0_seg.to(self.device)
+            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(val_loader)):
                 y1_img = y1_img.to(self.device)
                 y1_seg = y1_seg.to(self.device)
 
-                model_input = (y0_img, y0_seg, y1_img)
+                # model_input = (y0_img, y0_seg, y1_img)
 
-                # run model
-                model_out = self.model(model_input)
+                # # run model
+                # model_out = self.model(model_input)
+                model_out = self.model(y1_img)
+
+                #model_out_prob = torch.nn.functional.softmax(model_out[0], dim =1)#torch.sigmoid(model_out[0])
+                # mean_pred = torch.zeros([1,1,224,224,224]).to(self.device)
+                # mean_pred[model_out_prob[:,[1],:,:,:]>0.6] = 1
+                # mean_pred[model_out_prob[:,[2],:,:,:]>0.6] = 2
+                # # compute metric
+                # if self.seg_type == 'left_right_lung':
+                #     batch_metric = self.__compute_metric( mean_pred == 1, y1_seg==1)
+                #     val_metric.extend([batch_metric.cpu().item()])
+                #     batch_metric_2 = self.__compute_metric( mean_pred == 2, y1_seg==2)
+                #     val_metric_2.extend([batch_metric_2.cpu().item()])
+                # elif self.seg_type == 'lung':
                 model_out_sigmoid = torch.sigmoid(model_out[0])
 
                 #save sigmoid into pkl files
                 #torch.save(model_out_sigmoid, os.path.join(self.exp_dir, 'pred_scores', split, f"{pids[batch_idx]}.pkl"))
 
-                # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.7).float(), y1_seg)
+                ## compute metric
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
@@ -428,10 +516,14 @@ class Trainer(baseTrainer):
 
         val_loss_mean = val_loss_sum / len(val_loader)
         val_metric_mean = np.mean(val_metric)
-        print(
-            "Final {} Loss : {:.6f}; Dice: {:.6f} ".format( split,
-                val_loss_mean, val_metric_mean
-            )
+        #val_metric_mean_2 = np.mean(val_metric_2)
+        # print(
+        #     "Final {} Loss : {:.6f}; Dice left: {:.6f}; Dice right: {:.6f} ".format( split,
+        #         val_loss_mean, val_metric_mean, val_metric_mean_2
+        #     )
+        # )
+        print("Final {} Loss : {:.6f}; Dice : {:.6f}".format( split,
+                                                             val_loss_mean, val_metric_mean )
         )
 
         # save results
@@ -440,9 +532,10 @@ class Trainer(baseTrainer):
                 split: [
                     val_loss_mean,
                     val_metric_mean,
+                    #val_metric_mean_2
                 ],
             },
-            index=["loss", "metric"],
+            index=["loss", "dice"]#"dice_left", "dice_right"],
         )
         results = pd.concat([results], axis=0)
 
@@ -455,21 +548,13 @@ class Trainer(baseTrainer):
         dice = DiceCoefficient()
         return dice(model_out, label)
 
-    def __compute_loss(self, model_out, label):
+    def __compute_loss(self, model_out, label, both = False):
 
         loss = []
         if 'DiceCELoss' in self.loss:
             dice_ce_loss = self.DiceCE_loss(model_out, label)
             loss.append(dice_ce_loss)
-        
-        if 'BoundaryLoss' in self.loss:
-            model_out_sigmoid = torch.sigmoid(model_out)
-            boundary_input = torch.cat([1-model_out_sigmoid, model_out_sigmoid], dim=1)
-            boundary_label = torch.cat([1-label, label], dim=1)
-            boundary_loss = self.boundary_loss(boundary_input, boundary_label)
-            loss.append(boundary_loss)
-
-        loss = sum(loss)
+        loss = torch.stack(loss).sum()
 
         return loss
 
@@ -481,6 +566,7 @@ class Trainer(baseTrainer):
             self.model.load_state_dict(ckpt["model"])
             self.optimizer.load_state_dict(ckpt["optimizer"])
             self.early_stopping = ckpt["early_stopping"]
+            self.early_stopping.early_stop = False
             if self.sche:
                 self.scheduler.load_state_dict(ckpt["scheduler"])
         else:

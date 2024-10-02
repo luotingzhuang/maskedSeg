@@ -10,38 +10,52 @@ from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
     LoadImaged,
-    CenterSpatialCropd,
+    #CenterSpatialCropd,
     Orientationd,
-    ResizeWithPadOrCropd,
+    Resized,
+    #ResizeWithPadOrCropd,
     Spacingd,
-    FillHolesd,
-    ScaleIntensityRanged,
+    #FillHolesd,
+    #ScaleIntensityRanged,
     ThresholdIntensityd,
     NormalizeIntensityd,
     RandAffined
 )
+import random
+from typing import List
+from utils.train_utils import random_mask_patches_3d
+import gzip
+import pickle
 
+from time import time
 
 class TaskDataset(Dataset):
     def __init__(self,  
                  csv_file: str, 
                  mode: str = "train", 
                  mask: bool = False, 
-                 mask_size: int = 20,
-                 mask_percent: int = 40,
-                 seed: int = 0) -> None:
+                 mask_dir: str = None,
+#                  mask_size: List[int] = [7],
+#                  mask_percent: List[int] = [70],#int = 40,
+                 seed: int = 0,
+                #  offset: bool = False,
+                # seg_type: str = 'lung'
+                ) -> None:
         self.csv_path = pd.read_csv(csv_file)#.dropna()
         #train val split
         np.random.seed(seed)
         self.mode = mode
         self.mask = mask
-        self.mask_size = mask_size
-        self.mask_percent = mask_percent
-
+        self.mask_dir = mask_dir
+        #self.mask_size = mask_size
+        #self.mask_percent = mask_percent
+        # self.offset = offset
+        #self.seg_type = seg_type
+    
         self.test = self.csv_path[self.csv_path['train'] == 0].reset_index(drop=True)#.iloc[0:2]
         self.train_raw = self.csv_path[self.csv_path['train'] == 1].reset_index(drop=True)
 
-        self.train = self.train_raw.sample(frac=0.7, random_state=seed)
+        self.train = self.train_raw.sample(frac=0.8, random_state=seed)
         self.val = self.train_raw.drop(self.train.index)
         self.train = self.train.reset_index(drop=True)#.iloc[0:2]
         self.val = self.val.reset_index(drop=True)#.iloc[0:2]
@@ -65,7 +79,8 @@ class TaskDataset(Dataset):
             ThresholdIntensityd(keys = 'img', threshold =-1024.0, above = True, cval = -1024.0),
             ThresholdIntensityd(keys = 'img', threshold = 276.0, above = False, cval = 276.0,),
             NormalizeIntensityd(keys = 'img', subtrahend  = -370.00039267657144, divisor = 436.5998675471528),
-            ResizeWithPadOrCropd(keys=['img', 'label'], spatial_size =(224,224,224), mode = 'constant'),
+            #ResizeWithPadOrCropd(keys=['img', 'label'], spatial_size =(224,224,224), mode = 'constant'),
+            Resized(keys=['img', 'label'], spatial_size =(224,224,224)),
             RandAffined(
                 keys=["img", "label"],
                 mode=("bilinear", "nearest"),
@@ -85,7 +100,9 @@ class TaskDataset(Dataset):
             ThresholdIntensityd(keys = 'img', threshold =-1024.0, above = True, cval = -1024.0),
             ThresholdIntensityd(keys = 'img', threshold = 276.0, above = False, cval = 276.0,),
             NormalizeIntensityd(keys = 'img', subtrahend  = -370.00039267657144, divisor = 436.5998675471528),
-            ResizeWithPadOrCropd(keys=['img', 'label'], spatial_size =(224,224,224), mode = 'constant'),
+            Resized(keys=['img', 'label'], spatial_size =(224,224,224)),
+
+            #ResizeWithPadOrCropd(keys=['img', 'label'], spatial_size =(224,224,224), mode = 'constant'),
         ])
 
 
@@ -94,30 +111,34 @@ class TaskDataset(Dataset):
 
     def __getitem__(self, idx: int):
         #load image data
+        
+        # start_time = time()
+        # y0_img = self.data.iloc[idx].y0_img.replace('projects/longitudinal_lung','dataset')
+        # y0_seg = self.data.iloc[idx].y0_seg.replace('projects/longitudinal_lung','dataset')
 
-        y0_img = self.data.iloc[idx].y0_img
-        y0_seg = self.data.iloc[idx].y0_seg
+        y1_img = self.data.iloc[idx].y1_img.replace('projects/longitudinal_lung','dataset')
+        y1_seg = self.data.iloc[idx].y1_seg.replace('projects/longitudinal_lung','dataset')
 
-        y1_img = self.data.iloc[idx].y1_img
-        y1_seg = self.data.iloc[idx].y1_seg
+        # if self.seg_type == 'left_right_lung':
+        #     y1_seg = y1_seg.replace('seg.nii.gz','seg_left_right.nii.gz')
 
-        #load initial timepoint
-        if self.mode == 'train':
-            try:
-                output = self.transforms_rand({'img': y0_img, 'label': y0_seg})
-                y0_img, y0_seg = output['img'], output['label']
-            except:
-                output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
-                y0_img, y0_seg = output['img'], output['label']
+        # #load initial timepoint
+        # if self.mode == 'train':
+        #     try:
+        #         output = self.transforms_rand({'img': y0_img, 'label': y0_seg})
+        #         y0_img, y0_seg = output['img'], output['label']
+        #     except:
+        #         output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
+        #         y0_img, y0_seg = output['img'], output['label']
 
-                #y0_seg = '/workspace/radraid/projects/longitudinal_lung/temporal_seg/temporalSeg/templates/template.nii.gz'
-                #y0_img =  '/workspace/radraid/projects/longitudinal_lung/temporal_seg/temporalSeg/templates/ct.nii.gz'
-                #output = self.transforms({'img': y0_img, 'label': y0_seg})
-                #y0_img, y0_seg = output['img'], output['label']
-        else:
-            output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
-            y0_img, y0_seg = output['img'], output['label']
-            
+        #         #y0_seg = '/workspace/radraid/projects/longitudinal_lung/temporal_seg/temporalSeg/templates/template.nii.gz'
+        #         #y0_img =  '/workspace/radraid/projects/longitudinal_lung/temporal_seg/temporalSeg/templates/ct.nii.gz'
+        #         #output = self.transforms({'img': y0_img, 'label': y0_seg})
+        #         #y0_img, y0_seg = output['img'], output['label']
+        # else:
+        #     output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
+        #     y0_img, y0_seg = output['img'], output['label']
+
         #load final timepoint
         if self.mode == 'train':
             output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
@@ -126,50 +147,31 @@ class TaskDataset(Dataset):
             output = self.transforms({'img': y1_img, 'label': y1_seg})
             y1_img, y1_seg = output['img'], output['label']
 
-        #dist_map_tensor = self.disttransform(y1_seg.squeeze().astype(np.int8))
             
         if self.mask:
-            set_y1_img = torch.quantile(y1_img, 0.9)
-            y1_img = self.random_mask_patches_3d(y1_img, 
-                                                 patch_size=(self.mask_size, self.mask_size, self.mask_size), 
-                                                 mask_percentage= self.mask_percent, 
-                                                 replace = set_y1_img)
-            #for _ in range(5):
-            #    mask_x, mask_y = np.random.uniform(40,160,2).astype(int)
-            #    mask_z = np.random.randint(10,180)
-            #    y1_img[:, mask_x:mask_x+45, mask_y:mask_y+45, mask_z:mask_z+45] = set_y1_img
+            #set_y1_img = torch.quantile(y1_img, 0.9)
+#             set_y1_img = 1.0
+#             ms = random.choice(self.mask_size)
+#             mp = random.choice(self.mask_percent)
+#             y1_img = random_mask_patches_3d(y1_img, 
+#                                                  patch_size=(ms, ms, ms), 
+#                                                  mask_percentage= mp, 
+#                                                  replace = set_y1_img,
+#                                                  offset = self.offset
 
-        return y0_img, y0_seg, y1_img, y1_seg#, torch.zeros(1)
-    
-    @staticmethod
-    def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, replace = 0):
+            mask_idx = np.random.choice(range(5000),1)[0]
 
-        # Get image dimensions
-        _ ,depth, height, width = img.shape
+            with gzip.open(os.path.join(self.mask_dir, f'mask_{mask_idx}.pkl'), 'r') as f:
+                mask = pickle.load(f)
+            
+            y1_img[torch.tensor(mask).bool()] = 1.0
 
-        patches_in_depth = depth // patch_size[0]
-        patches_in_height = height // patch_size[1]
-        patches_in_width = width // patch_size[2]
-        total_patches = patches_in_depth * patches_in_height * patches_in_width
 
-        # Calculate the number of patches to mask
-        num_patches_to_mask = int(total_patches * (mask_percentage / 100))
+        # if self.seg_type == 'left_right_lung':
+        #     y1_seg[y1_seg==3]= 0
 
-        # Create a binary mask to randomly select patches to mask
-        mask = torch.zeros(img.shape, dtype=torch.uint8)
+        # end_time = time()
+        # print(f"Time taken: {end_time - start_time}")
+        return  y1_img, y1_seg#, torch.zeros(1)
 
-        patch_indices = np.random.choice(range(total_patches), num_patches_to_mask, replace = False)
-
-        for index in patch_indices:
-            z_idx = index // (patches_in_height * patches_in_width)
-            y_idx = (index % (patches_in_height * patches_in_width)) // patches_in_width
-            x_idx = (index % (patches_in_height * patches_in_width)) % patches_in_width
-
-            mask[:, z_idx * patch_size[0]:(z_idx + 1) * patch_size[0],
-                y_idx * patch_size[1]:(y_idx + 1) * patch_size[1],
-                x_idx * patch_size[2]:(x_idx + 1) * patch_size[2]] = 1
-
-        # Apply the mask to the 3D image
-        img[mask] = replace
-
-        return img
+        # return y0_img, y0_seg, y1_img, y1_seg#, torch.zeros(1)
