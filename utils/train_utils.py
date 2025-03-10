@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import random
 import os
+from typing import Tuple
 
 
 def initialize_weights(module):
@@ -80,7 +81,25 @@ class EarlyStopping:
             )
         torch.save({"model": model.state_dict()}, ckpt_path)
 
-def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, replace = 0, offset = False):
+def random_mask_patches_3d(img: torch.Tensor, 
+                           patch_size: Tuple=(20, 20, 20), 
+                           mask_percentage: int = 40, 
+                           replace: int = 0, 
+                           offset: bool = False):
+    
+    """
+    Randomly mask patches in a 3D image
+
+    Args:
+        img (torch.Tensor): 3D image tensor
+        patch_size (Tuple): size of the patch to mask WxHxD
+        mask_percentage (int): percentage of patches to mask
+        replace (int): value to replace the masked patches with
+        offset (bool): whether to apply offset to the mask
+
+    Returns:
+        img (torch.Tensor): masked 3D image tensor
+    """
 
     # Get image dimensions
     if offset:
@@ -102,7 +121,6 @@ def random_mask_patches_3d(img, patch_size=(20, 20, 20), mask_percentage=40, rep
 
     # Create a binary mask to randomly select patches to mask
     mask = torch.zeros(img.shape, dtype=torch.uint8)
-
     patch_indices = np.random.choice(range(total_patches), num_patches_to_mask, replace = False)
 
     for index in patch_indices:
