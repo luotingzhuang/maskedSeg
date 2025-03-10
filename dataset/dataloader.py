@@ -35,8 +35,8 @@ class TaskDataset(Dataset):
         offset (bool): whether to apply offset to the mask
 
     Returns:
-        y1_img (torch.Tensor): image tensor
-        y1_seg (torch.Tensor): reference segmentation tensor
+        img (torch.Tensor): image tensor
+        seg (torch.Tensor): reference segmentation tensor
     """
     def __init__(self,  
                  csv_file: str, 
@@ -117,29 +117,29 @@ class TaskDataset(Dataset):
 
     def __getitem__(self, idx: int):
         #load image data
-        y1_img = self.data.iloc[idx].y1_img#.replace('projects/longitudinal_lung','dataset')
-        y1_seg = self.data.iloc[idx].y1_seg#.replace('projects/longitudinal_lung','dataset')
+        img = self.data.iloc[idx].img_path#.replace('projects/longitudinal_lung','dataset')
+        seg = self.data.iloc[idx].seg_path#.replace('projects/longitudinal_lung','dataset')
 
         #apply random transforms to the image in training mode
         #apply deterministic transforms to the image in val and test mode
         if self.mode == 'train':
-            output = self.transforms_rand({'img': y1_img, 'label': y1_seg})
-            y1_img, y1_seg = output['img'], output['label']
+            output = self.transforms_rand({'img': img, 'label': seg})
+            img, seg = output['img'], output['label']
         else:
-            output = self.transforms({'img': y1_img, 'label': y1_seg})
-            y1_img, y1_seg = output['img'], output['label']
+            output = self.transforms({'img': img, 'label': seg})
+            img, seg = output['img'], output['label']
 
         #apply mask to the image            
         if self.mask:
-            set_y1_img = torch.quantile(y1_img, 0.9)
-            set_y1_img = 1.0
+            set_img = torch.quantile(img, 0.9)
+            set_img = 1.0
             ms = random.choice(self.mask_size)
             mp = random.choice(self.mask_percent)
-            y1_img = random_mask_patches_3d(y1_img, 
+            img = random_mask_patches_3d(img, 
                                                  patch_size=(ms, ms, ms), 
                                                  mask_percentage= mp, 
-                                                 replace = set_y1_img,
+                                                 replace = set_img,
                                                  offset = self.offset)
 
-        return  y1_img, y1_seg
+        return  img, seg
 

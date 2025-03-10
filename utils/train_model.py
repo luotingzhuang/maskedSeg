@@ -4,26 +4,16 @@ import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import os
-import random
-import time
-import math
 from argparse import ArgumentParser
 from model.unet import PlainConvUNet
 from model.initialization.weight_init import InitWeights_He
-from utils.loss_utils import BoundaryLoss, BoundaryDoULoss
-#from utils.loss_utils import loss1
 from utils.train_utils import EarlyStopping
 from utils.metric_utils import DiceCoefficient
-import logging
 from tensorboardX import SummaryWriter
 import monai
-import sys
-sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/nnUNet')
-sys.path.insert(0,'/workspace/radraid/projects/seg_lung/masked_seg/totalsegmentator/dynamic-network-architectures')
-
-from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
-from nnunetv2.utilities.label_handling.label_handling import  determine_num_input_channels
-from dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
+from totalsegmentator.nnUNet.nnunetv2.utilities.plans_handling.plans_handler import PlansManager
+from totalsegmentator.nnUNet.nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
+from totalsegmentator.dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
@@ -54,7 +44,6 @@ class baseTrainer:
         self.log = args.log
         self.print_every = args.print_every
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.seg_type = args.seg_type
 
         self.__init_model()
         self.__init_loss()
@@ -211,19 +200,19 @@ class Trainer(baseTrainer):
             train_loss_sum = 0
             train_metric = []
 
-            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(train_loader)):
-                y1_img = y1_img.to(self.device)
-                y1_seg = y1_seg.to(self.device)
+            for batch_idx, (img, seg) in enumerate(tqdm(train_loader)):
+                img = img.to(self.device)
+                seg = seg.to(self.device)
 
-                model_out = self.model(y1_img)
+                model_out = self.model(img)
                 model_out_sigmoid = torch.sigmoid(model_out[0])
 
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), seg)
                 train_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
                 both = True if batch_idx > 100 else False
-                train_loss = self.__compute_loss( model_out[0], y1_seg , both) / self.update_size
+                train_loss = self.__compute_loss( model_out[0], seg , both) / self.update_size
                 train_loss = train_loss / self.update_size #normalize loss
 
                 # backprop
@@ -246,8 +235,8 @@ class Trainer(baseTrainer):
                     #plot img and seg
                     for img_idx in [60,120,180]:
                         fig, ax = plt.subplots(1, 5, figsize=(15, 5))
-                        ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[0].imshow(img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[1].imshow(seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
 
                         ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
@@ -314,19 +303,19 @@ class Trainer(baseTrainer):
         self.model.eval()
         with torch.no_grad():
 
-            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(val_loader)):
-                y1_img = y1_img.to(self.device)
-                y1_seg = y1_seg.to(self.device)
+            for batch_idx, (img, seg) in enumerate(tqdm(val_loader)):
+                img = img.to(self.device)
+                seg = seg.to(self.device)
 
                 # run model
-                model_out = self.model(y1_img)
+                model_out = self.model(img)
                 model_out_sigmoid = torch.sigmoid(model_out[0])
                 # compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
-                val_loss = self.__compute_loss( model_out[0], y1_seg)
+                val_loss = self.__compute_loss( model_out[0], seg)
                 val_loss_sum += val_loss.item()
 
 
@@ -337,8 +326,8 @@ class Trainer(baseTrainer):
                     #plot img and seg
                     for img_idx in [50,120,180]:
                         fig, ax = plt.subplots(1, 5, figsize=(15, 5))
-                        ax[0].imshow(y1_img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
-                        ax[1].imshow(y1_seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[0].imshow(img[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
+                        ax[1].imshow(seg[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")
                         ax[2].imshow((model_out_sigmoid > 0.5).float()[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray")    
                         ax[3].imshow(model_out_sigmoid[0, 0, :, :, img_idx].cpu().detach().numpy(), cmap="gray", vmin=0, vmax=1)
 
@@ -393,18 +382,18 @@ class Trainer(baseTrainer):
 
         with torch.no_grad():
 
-            for batch_idx, (y1_img, y1_seg) in enumerate(tqdm(val_loader)):
-                y1_img = y1_img.to(self.device)
-                y1_seg = y1_seg.to(self.device)
-                model_out = self.model(y1_img)
+            for batch_idx, (img, seg) in enumerate(tqdm(val_loader)):
+                img = img.to(self.device)
+                seg = seg.to(self.device)
+                model_out = self.model(img)
                 model_out_sigmoid = torch.sigmoid(model_out[0])
 
                 ## compute metric
-                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), y1_seg)
+                batch_metric = self.__compute_metric( (model_out_sigmoid > 0.5).float(), seg)
                 val_metric.extend([batch_metric.cpu().item()])
 
                 # compute loss
-                val_loss = self.__compute_loss( model_out[0], y1_seg)
+                val_loss = self.__compute_loss( model_out[0], seg)
                 val_loss_sum += val_loss.item()
 
         val_loss_mean = val_loss_sum / len(val_loader)
