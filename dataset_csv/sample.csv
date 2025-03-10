@@ -1,0 +1,11 @@
+pid,image_path,seg_path
+211397,./sample_data/211397/2001/img.nii.gz,./sample_data/211397/2001/seg.nii.gz
+103928,./sample_data/103928/1999/img.nii.gz,./sample_data/103928/1999/seg.nii.gz
+110704,./sample_data/110704/1999/img.nii.gz,./sample_data/110704/1999/seg.nii.gz
+123033,./sample_data/123033/2001/img.nii.gz,./sample_data/123033/2001/seg.nii.gz
+129155,./sample_data/129155/2001/img.nii.gz,./sample_data/129155/2001/seg.nii.gz
+108761,./sample_data/108761/2000/img.nii.gz,./sample_data/108761/2000/seg.nii.gz
+204711,./sample_data/204711/2000/img.nii.gz,./sample_data/204711/2000/seg.nii.gz
+130746,./sample_data/130746/2001/img.nii.gz,./sample_data/130746/2001/seg.nii.gz
+209374,./sample_data/209374/1999/img.nii.gz,./sample_data/209374/1999/seg.nii.gz
+103322,./sample_data/103322/2000/img.nii.gz,./sample_data/103322/2000/seg.nii.gz
