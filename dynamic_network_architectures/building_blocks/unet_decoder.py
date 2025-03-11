@@ -2,10 +2,10 @@ import numpy as np
 import torch
 from torch import nn
 from typing import Union, List, Tuple
-from totalsegmentator.dynamic_network_architectures.building_blocks.simple_conv_blocks import StackedConvBlocks
-from totalsegmentator.dynamic_network_architectures.building_blocks.helper import get_matching_convtransp
-from totalsegmentator.dynamic_network_architectures.building_blocks.residual_encoders import ResidualEncoder
-from totalsegmentator.dynamic_network_architectures.building_blocks.plain_conv_encoder import PlainConvEncoder
+from dynamic_network_architectures.building_blocks.simple_conv_blocks import StackedConvBlocks
+from dynamic_network_architectures.building_blocks.helper import get_matching_convtransp
+from dynamic_network_architectures.building_blocks.residual_encoders import ResidualEncoder
+from dynamic_network_architectures.building_blocks.plain_conv_encoder import PlainConvEncoder
 
 
 class UNetDecoder(nn.Module):

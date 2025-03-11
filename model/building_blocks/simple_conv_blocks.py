@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
 
-from totalsegmentator.dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list
+from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list
 
 
 class ConvDropoutNormReLU(nn.Module):

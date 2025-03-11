@@ -4,9 +4,9 @@ from torch import nn
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
 
-from totalsegmentator.dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
-from totalsegmentator.dynamic_network_architectures.building_blocks.simple_conv_blocks import ConvDropoutNormReLU
-from totalsegmentator.dynamic_network_architectures.building_blocks.regularization import DropPath, SqueezeExcite
+from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
+from dynamic_network_architectures.building_blocks.simple_conv_blocks import ConvDropoutNormReLU
+from dynamic_network_architectures.building_blocks.regularization import DropPath, SqueezeExcite
 import numpy as np
 
 
