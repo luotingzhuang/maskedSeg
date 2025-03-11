@@ -28,8 +28,8 @@ cd maskedSeg
 gdown --folder https://drive.google.com/drive/folders/1MiI7Vly9VtvxdTdDJ2PWIS--cgkVJjMv?usp=drive_link
 ```
 
-### Package Requirements
-Install all of the required python packages using the following commandline.
+### Package Requirement
+Install all of the required python packages using the following command line.
 ```bash
 pip install -r requirements.txt
 ```
