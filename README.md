@@ -92,11 +92,13 @@ This project is based on the code from the following repository:
 - [dynamic_network_architectures](https://github.com/MIC-DKFZ/dynamic-network-architectures)
 
 ## TODO
+- [ ] Training code
 
 ## CITATION
-
+```bibtex
 @INPROCEEDINGS{
   author={Zhuang, Luoting and Tabatabaei, Seyed Mohammad Hossein and Prosper, Ashley E and Hsu, William},
   booktitle={To appear in 2025 IEEE International Symposium on Biomedical Imaging (ISBI)}, 
   title={Enhancing Lung Segmentation Algorithms To Ensure Inclusion Of Juxtapleural Nodules}, 
   year={2025}}
+```

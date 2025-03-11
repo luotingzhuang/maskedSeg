@@ -55,7 +55,7 @@ def eval(pid, img_path, model=None, n=100, thresh=0.6, result_dir=None, save_as 
     # n different masked images
     bootstrap = []
     for _ in tqdm(range(n)):
-        with torch.amp.autocast('cuda'):
+        with torch.cuda.amp.autocast():
             if isinstance(args.mask_size, int):
                 ms = args.mask_size
             else:

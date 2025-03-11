@@ -1,4 +1,5 @@
 scikit-image
+blosc2
 tensorboardX
 batchgenerators
 acvl-utils
