@@ -8,7 +8,7 @@ Computed tomography (CT) is pivotal in detecting and monitoring lung nodules in 
 ## Getting Started
 ### Create a Docker Container
 ```bash
-docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:23.05-py3
+docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:21.12-py3
 ```
 
 ### Clone the Repository and Install Packages
@@ -93,3 +93,10 @@ This project is based on the code from the following repository:
 
 ## TODO
 
+## CITATION
+
+@INPROCEEDINGS{
+  author={Zhuang, Luoting and Tabatabaei, Seyed Mohammad Hossein and Prosper, Ashley E and Hsu, William},
+  booktitle={To appear in 2025 IEEE International Symposium on Biomedical Imaging (ISBI)}, 
+  title={Enhancing Lung Segmentation Algorithms To Ensure Inclusion Of Juxtapleural Nodules}, 
+  year={2025}}
