@@ -10,9 +10,11 @@ Computed tomography (CT) is pivotal in detecting and monitoring lung nodules in 
 ```bash
 docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:21.12-py3
 ```
+- If you use `-v .:/workspace` as shown above, Docker will map the **current directory** to `/workspace` inside the container.
+- To map a different folder to a specific path in docker container, you can replace `-v .:/workspace` with `-v /path/to/local/folder:/path/in/container`.
 
 ### Clone the Repository and Install Packages
-1. Clone the repo
+1. Go to the folder you want to store the code and clone the repo
 ```bash
 git clone --depth 1 https://github.com/luotingzhuang/maskedSeg.git
 cd maskedSeg
