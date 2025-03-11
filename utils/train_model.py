@@ -5,8 +5,6 @@ import numpy as np
 import pandas as pd
 import os
 from argparse import ArgumentParser
-from model.unet import PlainConvUNet
-from model.initialization.weight_init import InitWeights_He
 from utils.train_utils import EarlyStopping
 from utils.metric_utils import DiceCoefficient
 from tensorboardX import SummaryWriter
@@ -14,6 +12,8 @@ import monai
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 from nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
 from dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
+from dynamic_network_architectures.building_blocks.unet import PlainConvUNet
+from dynamic_network_architectures.initialization import InitWeights_He
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
