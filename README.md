@@ -11,27 +11,28 @@ Computed tomography (CT) is pivotal in detecting and monitoring lung nodules in 
 docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:23.05-py3
 ```
 
-### Clone the Repository and Download Weight
+### Clone the Repository and Install Packages
 1. Clone the repo
 ```bash
 git clone --depth 1 https://github.com/luotingzhuang/maskedSeg.git
 cd maskedSeg
 ```
-2. Download `model_weights` from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link) and put it under `./maskedSeg`.
-    - `checkpoint_final.pth` is the checkpoint file containing information about [totalsegmentator](https://github.com/wasserth/TotalSegmentator) architecture and its model weights.
-    - `es_checkpoint.pth.tar` is the weights of the finetuned model.
-    - `args.json` contains arguments for training.
+
+2. Install all of the required python packages using the following command line.
+```bash
+pip install -r requirements.txt
+```
+
+### Download Pretrained Weights
+Download `model_weights` from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link) and put it under `./maskedSeg`.
+- `checkpoint_final.pth` is the checkpoint file containing information about [totalsegmentator](https://github.com/wasserth/TotalSegmentator) architecture and its model weights.
+- `es_checkpoint.pth.tar` is the weights of the finetuned model.
+- `args.json` contains arguments for training.
 
 ```bash
 # You can also download it using gdown
-# pip install gdown
+pip install gdown
 gdown --folder https://drive.google.com/drive/folders/1MiI7Vly9VtvxdTdDJ2PWIS--cgkVJjMv?usp=drive_link
-```
-
-### Package Requirement
-Install all of the required python packages using the following command line.
-```bash
-pip install -r requirements.txt
 ```
 
 ### Data Requirement
@@ -87,10 +88,8 @@ By default, the segmentation results will be saved in the `./output` folder.
 ## Acknowledgements
 This project is based on the code from the following repository:
 - [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
-
-- [nnUNet] (https://github.com/MIC-DKFZ/nnUNet)
-
-- [dynamic_network_architectures] (https://github.com/MIC-DKFZ/dynamic-network-architectures)
+- [nnUNet](https://github.com/MIC-DKFZ/nnUNet)
+- [dynamic_network_architectures](https://github.com/MIC-DKFZ/dynamic-network-architectures)
 
 ## TODO
 
