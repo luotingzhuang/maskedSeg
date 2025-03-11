@@ -52,17 +52,17 @@ class PlainConvUNet(nn.Module):
                                         n_conv_per_stage, conv_bias, norm_op, norm_op_kwargs, dropout_op,
                                         dropout_op_kwargs, nonlin, nonlin_kwargs, return_skips=True,
                                         nonlin_first=nonlin_first)
-        self.encoder2 = PlainConvEncoder(input_channels, n_stages, features_per_stage, conv_op, kernel_sizes, strides,
-                                        n_conv_per_stage, conv_bias, norm_op, norm_op_kwargs, dropout_op,
-                                        dropout_op_kwargs, nonlin, nonlin_kwargs, return_skips=True,
-                                        nonlin_first=nonlin_first)
+        # self.encoder2 = PlainConvEncoder(input_channels, n_stages, features_per_stage, conv_op, kernel_sizes, strides,
+        #                                 n_conv_per_stage, conv_bias, norm_op, norm_op_kwargs, dropout_op,
+        #                                 dropout_op_kwargs, nonlin, nonlin_kwargs, return_skips=True,
+        #                                 nonlin_first=nonlin_first)
         self.decoder = UNetDecoder(self.encoder, num_classes, n_conv_per_stage_decoder, deep_supervision,
                                    nonlin_first=nonlin_first)
 
-    def forward(self, x1,x2):
+    def forward(self, x1):#,x2):
         skips = self.encoder(x1)
-        skips_2 = self.encoder(x2)
-        skips = [i+j for i , j in zip(skips,skips_2)]
+        #skips_2 = self.encoder(x2)
+        #skips = [i+j for i , j in zip(skips,skips_2)]
         return self.decoder(skips)
 
     def compute_conv_feature_map_size(self, input_size):
