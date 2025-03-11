@@ -2,8 +2,6 @@ import os
 import numpy as np
 import pandas as pd
 import json
-import gzip
-import pickle
 from tqdm import tqdm
 import traceback
 import random
@@ -151,9 +149,9 @@ if __name__ == "__main__":
     with open(os.path.join(eval_args.exp_dir, "args.json"), "r") as file:
         loaded_args = json.load(file)
     args = MyArgs(**loaded_args)
-    args.totalseg_weight = './totalsegmentator/checkpoint_final.pth'
+    args.totalseg_weight = './model_weights/checkpoint_final.pth'
     if not os.path.exists(args.totalseg_weight):
-        raise FileNotFoundError(f"Total segmentation weight not found: {args.totalseg_weight}")
+        raise FileNotFoundError(f"Totalsegmentator weight not found: {args.totalseg_weight}")
     
     print("Initialize model...")
     model = init_model(args, device, eval_args.exp_dir)

@@ -9,17 +9,22 @@ Computed tomography (CT) is pivotal in detecting and monitoring lung nodules in 
 ### Clone the Repository and Download Weight
 1. Clone the repo
 ```bash
-git clone https://github.com/luotingzhuang/maskedSeg.git
+git clone --depth 1 https://github.com/luotingzhuang/maskedSeg.git
 cd maskedSeg
 ```
-2. Download model weights from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link).
-    - Download `checkpoint_final.pth` and save it to `./maskedSeg/totalsegmentator` folder.
-        - This is the checkpoint file containing information about [totalsegmentator](https://github.com/wasserth/TotalSegmentator) architecture and its model weights.
-    - Download the model_weights folder under `./maskedSeg`.
-        - This is the weights of the finetuned model and arguments.
+2. Download `model_weights` from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link) and put it under `./maskedSeg`.
+    - `checkpoint_final.pth` is the checkpoint file containing information about [totalsegmentator](https://github.com/wasserth/TotalSegmentator) architecture and its model weights.
+    - `es_checkpoint.pth.tar` is the weights of the finetuned model.
+    - `args.json` contains arguments for training.
+
+```bash
+gdown --folder https://drive.google.com/drive/folders/1MiI7Vly9VtvxdTdDJ2PWIS--cgkVJjMv?usp=drive_link
+```
 
 ### Package Requirement
+docker
 
+docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:23.05-py3
 
 ### Data Requirement
 The model accepts a NIfTI file as input and outputs either a NIfTI file or NumPy arrays.
@@ -32,14 +37,16 @@ The CSV file should contain two columns:
 
 Refer to `./dataset_csv/sample.csv` as an example. The `seg_path` column is not required.
 Sample data can also be downloaded from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link).
-
+```bash
+gdown --folder https://drive.google.com/drive/folders/1tQ_eD6i30C-qY9dfX4X20zuSyN7eB0lT?usp=drive_link
+```
 ## Lung Segmentation
 ### Run Inference
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python eval.py --csv_file ./dataset_csv/sample.csv --result_dir ./output --exp_dir ./model_weights --n 100 --thresh 0.55 --save_as nifti
 ```
-**Arguments**  
+#### Arguments
 | Argument      | Type  | Default | Description |
 |--------------|------|---------|-------------|
 | `--csv_file`  | str  | `./dataset_csv/sample.csv` | Path to the CSV file containing image paths. |
@@ -51,7 +58,8 @@ CUDA_VISIBLE_DEVICES=0 python eval.py --csv_file ./dataset_csv/sample.csv --resu
 
 **Note:** The values `n=100` and `threshold=0.55` are used as the default values in the script. These parameters are also used to produce the results that are shown in the paper. You can adjust these values.
 
-**Outputs**
+#### Outputs
+
 By default, the segmentation results will be saved in the `./output` folder.  
 
 - If saved as **NIfTI** files (`--save_as nifti`):  
@@ -66,3 +74,9 @@ By default, the segmentation results will be saved in the `./output` folder.
   - The file format will be `{pid}.npz`, containing:  
     - **First array** – The average segmentation result across n masked samples.  
     - **Second array** – The standard deviation.  
+
+## Acknowledgements
+This project is based on the code from the following repository:
+- [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
+- [nnUNet] (https://github.com/MIC-DKFZ/nnUNet)
+- [dynamic_network_architectures] (https://github.com/MIC-DKFZ/dynamic-network-architectures)
