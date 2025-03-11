@@ -6,6 +6,11 @@ Medical & Imaging Informatics, Department of Radiological Sciences, David Geffen
 Computed tomography (CT) is pivotal in detecting and monitoring lung nodules in cancer screening. With the advancement of artificial intelligence in medical imaging, accurate lung segmentation has become crucial for reliable feature extraction. While traditional methods are not generalizable and computationally expensive, deep learning models also face difficulties incorporating nodules due to overreliance on pixel intensity. To overcome the challenge, we finetuned a 3D U-Net by randomly masking out 70% of the images, which forces the model to infer the missing regions and learn the boundaries of the lungs. Our model achieves a Dice coefficient of 0.982 in lung segmentation. Notably, our approach achieved higher sensitivity compared to three state-of-the-art deep learning models in the inclusion of juxtapleural and large nodules by 0.11, 0.20, and 0.52, respectively. Additionally, it consistently outperformed these models on external datasets. The improved result in nodule inclusion allows for more accurate and robust downstream analysis and computer-aided diagnosis of lung cancer. Our model also provides pixel-level uncertainty estimates, which visually present where the model is confident or uncertain. High-uncertainty areas can be flagged for further examination by both clinicians and researchers.
 
 ## Getting Started
+### Create a Docker Container
+```bash
+docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:23.05-py3
+```
+
 ### Clone the Repository and Download Weight
 1. Clone the repo
 ```bash
@@ -18,13 +23,16 @@ cd maskedSeg
     - `args.json` contains arguments for training.
 
 ```bash
+# You can also download it using gdown
+# pip install gdown
 gdown --folder https://drive.google.com/drive/folders/1MiI7Vly9VtvxdTdDJ2PWIS--cgkVJjMv?usp=drive_link
 ```
 
-### Package Requirement
-docker
-
-docker run --shm-size=8g --gpus all -it --rm -v .:/workspace -v /etc/localtime:/etc/localtime:ro nvcr.io/nvidia/pytorch:23.05-py3
+### Package Requirements
+Install all of the required python packages using the following commandline.
+```bash
+pip install -r requirements.txt
+```
 
 ### Data Requirement
 The model accepts a NIfTI file as input and outputs either a NIfTI file or NumPy arrays.
@@ -38,6 +46,7 @@ The CSV file should contain two columns:
 Refer to `./dataset_csv/sample.csv` as an example. The `seg_path` column is not required.
 Sample data can also be downloaded from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link).
 ```bash
+# You can also download it using gdown
 gdown --folder https://drive.google.com/drive/folders/1tQ_eD6i30C-qY9dfX4X20zuSyN7eB0lT?usp=drive_link
 ```
 ## Lung Segmentation
@@ -78,5 +87,10 @@ By default, the segmentation results will be saved in the `./output` folder.
 ## Acknowledgements
 This project is based on the code from the following repository:
 - [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
+
 - [nnUNet] (https://github.com/MIC-DKFZ/nnUNet)
+
 - [dynamic_network_architectures] (https://github.com/MIC-DKFZ/dynamic-network-architectures)
+
+## TODO
+
