@@ -9,10 +9,9 @@ import torch
 import argparse
 from utils.train_model import Trainer
 from utils.train_utils import random_mask_patches_3d
+from skimage import measure
 from monai.transforms.utils import allow_missing_keys_mode
 from monai.data import MetaTensor
-from utils.eval_utils import find_connected_components
-from utils.eval_utils import MyArgs
 from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
@@ -25,7 +24,27 @@ from monai.transforms import (
     SaveImage
 )
 
+class MyArgs:
+    def __init__(self, **kwargs):
+        # Assign all keyword arguments to attributes
+        self.__dict__.update(kwargs)
+        self.sche = None
+        self.max_epoch = 50
 
+def find_connected_components(image, size_threshold):
+    # Convert the image to binary using a suitable threshold
+    binary_image = image > 0.5  # Adjust the threshold as needed
+
+    # Label connected components
+    labeled_image = measure.label(binary_image)
+
+    # Measure properties of labeled regions
+    regions = measure.regionprops(labeled_image)
+
+    # Filter components based on size threshold
+    large_components = [region for region in regions if region.area > size_threshold]
+
+    return labeled_image, large_components
 
 
 def eval(pid, img_path, model=None, n=100, thresh=0.6, result_dir=None, save_as = 'numpy'):
