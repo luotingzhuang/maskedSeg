@@ -12,7 +12,7 @@ import monai
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 from nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
 from dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
-from dynamic_network_architectures.building_blocks.unet import PlainConvUNet
+from dynamic_network_architectures.architectures.unet import PlainConvUNet
 from dynamic_network_architectures.initialization import InitWeights_He
 from tqdm import tqdm
 
