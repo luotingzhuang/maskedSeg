@@ -117,8 +117,6 @@ class baseTrainer:
             strides=configuration_manager.pool_op_kernel_sizes,
             num_classes=1,
             deep_supervision=deep_supervision,
-            prior= self.prior,
-            prior_type= self.prior_type,
             **conv_or_blocks_per_stage,
             **kwargs[segmentation_network_class_name]
         )
