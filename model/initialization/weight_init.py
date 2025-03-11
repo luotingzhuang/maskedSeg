@@ -1,6 +1,6 @@
 from torch import nn
 
-from dynamic_network_architectures.building_blocks.residual import BasicBlockD
+from totalsegmentator.dynamic_network_architectures.building_blocks.residual import BasicBlockD
 
 
 class InitWeights_He(object):
