@@ -129,7 +129,6 @@ class baseTrainer:
                                    strict = False)
         print("...done")
         
-
         #freeze encoder
         if self.freeze:
             print(f"Freezing encoder")
