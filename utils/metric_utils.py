@@ -1,4 +1,6 @@
 import torch
+
+
 def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     """
     Computes DiceCoefficient as defined in https://arxiv.org/abs/1606.04797 given  a multi channel input and target.
@@ -12,7 +14,9 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     """
 
     # input and target shapes must match
-    assert input.size() == target.size(), "'input' and 'target' must have the same shape"
+    assert (
+        input.size() == target.size()
+    ), "'input' and 'target' must have the same shape"
 
     input = flatten(input)
     target = flatten(target)
@@ -26,7 +30,6 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     # here we can use standard dice (input + target).sum(-1) or extension (see V-Net) (input^2 + target^2).sum(-1)
     denominator = (input * input).sum(-1) + (target * target).sum(-1)
     return 2 * (intersect / denominator.clamp(min=epsilon))
-
 
 
 class DiceCoefficient:
