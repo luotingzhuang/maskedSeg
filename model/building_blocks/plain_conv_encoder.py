@@ -5,8 +5,8 @@ from typing import Union, Type, List, Tuple
 
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
-from dynamic_network_architectures.building_blocks.simple_conv_blocks import StackedConvBlocks
-from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
+from totalsegmentator.dynamic_network_architectures.building_blocks.simple_conv_blocks import StackedConvBlocks
+from totalsegmentator.dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
 
 
 class PlainConvEncoder(nn.Module):
