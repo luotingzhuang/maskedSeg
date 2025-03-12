@@ -98,6 +98,9 @@ By default, the segmentation results will be saved in the `./output` folder.
     - **Second array** – The standard deviation.  
   - The segmentation results are saved in RAS orientation.
 
+#### Visualization
+Use `./tutorial/visualization.ipynb` to visualize the the predicted segmentation in jupyter notebook.
+
 ### Other Lung Segmentation Tools
 - [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
 - [lungmask](https://github.com/JoHof/lungmask)
