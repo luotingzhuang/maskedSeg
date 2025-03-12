@@ -89,6 +89,7 @@ By default, the segmentation results will be saved in the `./output` folder.
   - The file format will be `{pid}.npz`, containing:  
     - **First array** – The average segmentation result across n masked samples.  
     - **Second array** – The standard deviation.  
+  - The segmentation results are saved in RAS orientation.
 
 ### Other Lung Segmentation Tools
 - [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
