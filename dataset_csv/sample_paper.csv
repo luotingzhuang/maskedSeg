@@ -1,4 +1,4 @@
 pid,image_path,seg_path
-107791,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/107791/1999/img.nii.gz,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/107791/1999/seg.nii.gz
-203166,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/203166/1999/img.nii.gz,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/203166/1999/seg.nii.gz
-211397,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/211397/2001/img.nii.gz,/workspace/radraid/projects/longitudinal_lung/NLST_CT_longitudinal/211397/2001/seg.nii.gz
+107791,./sample_data/107791/1999/img.nii.gz,./sample_data/107791/1999/seg.nii.gz
+203166,./sample_data/203166/1999/img.nii.gz,./sample_data/203166/1999/seg.nii.gz
+211397,./sample_data/211397/2001/img.nii.gz,./sample_data/211397/2001/seg.nii.gz
