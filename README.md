@@ -38,15 +38,18 @@ gdown --folder https://drive.google.com/drive/folders/1MiI7Vly9VtvxdTdDJ2PWIS--c
 ```
 
 ### Data Requirement
-The model accepts a NIfTI file as input and outputs either a NIfTI file or NumPy arrays.
-To prepare a CSV file, list the path to the NIfTI file under the `image_path` column, along with the corresponding `pid`. 
+The model accepts a **NIfTI** file as input and outputs either a **NIfTI** file or **NumPy** arrays.
+
+To prepare a CSV file, list the path to the **NIfTI** file under the `image_path` column, along with the corresponding `pid`. 
+
 The CSV file should contain two columns:  
 | `pid` | `image_path` |  
 |------|------------|  
 | 001  | `./data/image1.nii.gz` |  
 | 002  | `./data/image2.nii.gz` |  
 
-Refer to `./dataset_csv/sample.csv` as an example. The `seg_path` column is not required.
+Refer to `./dataset_csv/sample.csv` or `./dataset_csv/sample_paper.csv` as an example. `./dataset_csv/sample_paper.csv` contains three examples shown in Figure 2 in the manuscript.
+
 Sample data can also be downloaded from the [link](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link).
 ```bash
 # You can also download it using gdown
@@ -86,6 +89,17 @@ By default, the segmentation results will be saved in the `./output` folder.
   - The file format will be `{pid}.npz`, containing:  
     - **First array** – The average segmentation result across n masked samples.  
     - **Second array** – The standard deviation.  
+
+### Other Lung Segmentation Tools
+- [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
+- [lungmask](https://github.com/JoHof/lungmask)
+
+The segmentation results of sample data are stored in `baseline_sample_data_seg` on the [google drive](https://drive.google.com/drive/folders/1elGnhviQBP8y7oPL2TpTn5jcBLE5HDs9?usp=drive_link).
+
+```bash
+# You can also download it using gdown
+gdown --folder https://drive.google.com/drive/folders/1S2k_cCIZV0SDLxRoQk9YL0x7mVTKgvr7?usp=drive_link
+```
 
 ## Acknowledgements
 This project is based on the code from the following repository:
