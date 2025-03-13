@@ -169,7 +169,7 @@ transforms = Compose(
         EnsureChannelFirstd(keys=["img", "label"]),
         Orientationd(keys=["img", "label"], axcodes="RAS"),
         Spacingd(
-            keys=["img", "label"], pixdim=(1.5, 1.5, 1.5), mode=("bilinear", "nearest")
+            keys=["img", "label"], pixdim=(2.0, 2.0, 2.0), mode=("trilinear", "nearest")
         ),
         ThresholdIntensityd(keys="img", threshold=-1024.0, above=True, cval=-1024.0),
         ThresholdIntensityd(
