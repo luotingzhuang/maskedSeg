@@ -1,5 +1,6 @@
 # Enhancing Lung Segmentation Algorithms to Ensure Inclusion of Juxtapleural Nodules
 **Luoting Zhuang, Seyed Mohammad Hossein Tabatabaei, Ashley Prosper, William Hsu**
+[![IEEE Paper](https://img.shields.io/badge/IEEE-Paper-blue)](https://ieeexplore.ieee.org/abstract/document/10981085)
 
 Medical & Imaging Informatics, Department of Radiological Sciences, David Geffen School of Medicine at UCLA, Los Angeles, CA  
 
@@ -123,9 +124,12 @@ This project is based on the code from the following repository:
 
 ## CITATION
 ```bibtex
-@INPROCEEDINGS{
+@inproceedings{zhuang2025enhancing,
+  title={Enhancing Lung Segmentation Algorithms to Ensure Inclusion of Juxtapleural Nodules},
   author={Zhuang, Luoting and Tabatabaei, Seyed Mohammad Hossein and Prosper, Ashley E and Hsu, William},
-  booktitle={To appear in 2025 IEEE International Symposium on Biomedical Imaging (ISBI)}, 
-  title={Enhancing Lung Segmentation Algorithms To Ensure Inclusion Of Juxtapleural Nodules}, 
-  year={2025}}
+  booktitle={2025 IEEE 22nd International Symposium on Biomedical Imaging (ISBI)},
+  pages={1--5},
+  year={2025},
+  organization={IEEE}
+}
 ```
